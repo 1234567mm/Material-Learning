@@ -1,0 +1,8 @@
+<!--
+    应用名 = 知识库（与 PC 端窗口标题保持一致）
+    注意：如果重新跑 `pnpm tauri android init`，这两条会被 productName ("Knowledge Base") 覆盖，需重新改回。
+-->
+<resources>
+    <string name="app_name">知识库</string>
+    <string name="main_activity_title">知识库</string>
+</resources>

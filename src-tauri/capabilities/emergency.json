@@ -1,0 +1,20 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "emergency-reminder",
+  "description": "紧急待办全屏接管窗口的权限（仅匹配 emergency-* label）。多窗口仅桌面端支持。",
+  "platforms": ["windows", "macOS", "linux"],
+  "windows": ["emergency-*"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-unminimize",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:event:default",
+    "log:default",
+    "notification:default"
+  ]
+}

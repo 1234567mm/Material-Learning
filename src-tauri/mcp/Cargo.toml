@@ -1,0 +1,25 @@
+[package]
+name = "kb-mcp"
+version = "0.1.0"
+description = "Knowledge Base MCP Server - 把本地知识库以 MCP 协议暴露给 Claude Desktop / Cursor / Cherry Studio 等 LLM 客户端"
+authors = ["抓蛙师"]
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+[[bin]]
+name = "kb-mcp"
+path = "src/main.rs"
+
+[dependencies]
+# kb-core：KbDb + KbServer + 12 工具的实现，与主应用共享
+kb-core = { path = "../kb-core" }
+# rmcp 这边只需要 stdio transport + ServiceExt trait（server feature 间接通过 kb-core 拉到了）
+rmcp = { version = "1.5", features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }
+# 错误处理：sidecar 是顶层应用，用 anyhow 比 thiserror 更省事
+anyhow = "1"
+# 命令行参数解析
+clap = { version = "4", features = ["derive", "env"] }
+
+# ─── 体积优化：sidecar 走和主应用一致的 release profile ───
+# 注意：profile 必须定义在 workspace 根（src-tauri/Cargo.toml），子 crate 自动继承

@@ -1,0 +1,632 @@
+import { useRef, useState, useEffect, useCallback } from "react";
+import { Outlet, useNavigate, useLocation } from "react-router-dom";
+import { Layout, Button, theme as antdTheme, Tooltip, Dropdown, message } from "antd";
+import { SettingOutlined, PushpinOutlined, PushpinFilled } from "@ant-design/icons";
+import { Search, Palette, ArrowLeft, ArrowRight, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+import { importApi } from "@/lib/api";
+import { useAppStore } from "@/store";
+import {
+  SIDE_PANEL_MIN_WIDTH,
+  SIDE_PANEL_MAX_WIDTH,
+  SIDE_PANEL_DEFAULT_WIDTH,
+} from "@/store";
+import { getThemesByCategory } from "@/theme/tokens";
+import type { ThemeMode } from "@/theme/tokens";
+import { ActivityBar, deriveActiveViewFromPath } from "./ActivityBar";
+import { SidePanel, viewHasPanel } from "./SidePanel";
+import { TabBar } from "./TabBar";
+import { WindowControls } from "./WindowControls";
+import { InstanceBadge } from "./InstanceBadge";
+import { CommandPalette } from "@/components/ui/CommandPalette";
+import { QuickCaptureAsrModal } from "@/components/QuickCaptureAsrModal";
+import { AsrToggleController } from "@/components/AsrToggleController";
+import { ShortcutsPanel } from "@/components/ui/ShortcutsPanel";
+import { StarryBackground } from "@/components/ui/StarryBackground";
+import { createBlankAndOpen } from "@/lib/noteCreator";
+import { UpdateBadge } from "@/components/ui/UpdateBadge";
+import { UpdateModal } from "@/components/ui/UpdateModal";
+import { ExitConfirmListener } from "@/components/ui/ExitConfirmListener";
+import { CloseRequestedListener } from "@/components/ui/CloseRequestedListener";
+import { useUpdateChecker } from "@/hooks/useUpdateChecker";
+import { SyncStatusButton } from "./SyncStatusButton";
+import { syncV1Api } from "@/lib/api";
+
+const { Header, Sider, Content } = Layout;
+
+// macOS 上使用 titleBarStyle: "Overlay" 保留原生红黄绿按钮（见 tauri.macos.conf.json）。
+// 避免 `decorations: false` 触发 NSWindow setStyleMask 反复重建（2026-04-22 卡死根因）。
+// 因此 Mac 下需隐藏自绘 WindowControls，并给 Header 左侧留出 ~80px 让位给系统按钮。
+const IS_MAC =
+  typeof navigator !== "undefined" && /Mac OS X|Macintosh/.test(navigator.userAgent);
+const HEADER_LEFT_PADDING = IS_MAC ? 80 : 16;
+
+function getAppWindow(): Window | null {
+  try {
+    return getCurrentWindow();
+  } catch {
+    return null;
+  }
+}
+
+/** Header 中间的可拖拽空白区域 */
+function DragRegion() {
+  const windowRef = useRef<Window | null>(getAppWindow());
+
+  function handleMouseDown(e: React.MouseEvent) {
+    if (e.buttons === 1 && windowRef.current) {
+      if (e.detail === 2) {
+        windowRef.current.toggleMaximize();
+      } else {
+        windowRef.current.startDragging();
+      }
+    }
+  }
+
+  return (
+    <div
+      onMouseDown={handleMouseDown}
+      style={{
+        flex: 1,
+        height: "100%",
+        cursor: "default",
+        userSelect: "none",
+      }}
+    />
+  );
+}
+
+/** ActivityBar 固定宽度（与 ActivityBar.tsx 内硬编码保持一致） */
+const ACTIVITY_BAR_WIDTH = 64;
+
+/**
+ * 跟踪 React Router history 栈位置，给 Header 后退/前进按钮提供 disabled 信号。
+ * React Router v7 在 window.history.state 上挂了 `idx` 字段，配合 length 即可判断
+ * 是否能前进/后退，不需要自己维护栈。location 变更（含 POP）都会触发刷新。
+ */
+function useHistoryNav() {
+  const location = useLocation();
+  const [state, setState] = useState(() => ({
+    idx: (window.history.state as { idx?: number })?.idx ?? 0,
+    len: window.history.length,
+  }));
+  useEffect(() => {
+    setState({
+      idx: (window.history.state as { idx?: number })?.idx ?? 0,
+      len: window.history.length,
+    });
+  }, [location]);
+  return {
+    canGoBack: state.idx > 0,
+    canGoForward: state.idx < state.len - 1,
+  };
+}
+
+export function AppLayout() {
+  const {
+    themeCategory,
+    lightTheme, darkTheme,
+    setLightTheme, setDarkTheme,
+    setThemeCategory,
+    focusMode: focusModeRaw, setFocusMode,
+    alwaysOnTop, setAlwaysOnTop,
+    activeView,
+    sidePanelWidth, setSidePanelWidth,
+    sidePanelVisible, toggleSidePanel,
+  } = useAppStore();
+  const activeTheme = themeCategory === "light" ? lightTheme : darkTheme;
+  const { token } = antdTheme.useToken();
+
+  // Pop-out 窗口：window label 以 `popout-` 开头则进精简模式（复用 focusMode 的隐藏逻辑：
+  // 无侧边栏 / Header / Tabs，仅渲染 Outlet 的笔记编辑器）。
+  // Why label 而不是 URL query：`?` 在 Windows 路径里非法，会让 WebviewUrl::App 把 URL
+  // 拼坏 → 白屏 + Win32 消息循环卡死（主窗冻结）。
+  const isPopoutWindow = (() => {
+    const w = getAppWindow();
+    return !!w && w.label.startsWith("popout-");
+  })();
+  const focusMode = focusModeRaw || isPopoutWindow;
+
+  const location = useLocation();
+  // 当前路由是否为"全页路由"（不属于任何 ActivityBar 视图，且本身有自己的左侧导航）。
+  // 这类路由下 SidePanel 必须强制隐藏——否则用户从笔记跳过来仍会看到笔记面板（bug）
+  const isStandalonePage =
+    location.pathname === "/settings" ||
+    location.pathname.startsWith("/settings/") ||
+    location.pathname === "/about" ||
+    location.pathname.startsWith("/about/");
+
+  // SidePanel 是否最终可见：视图自身有 panel + 用户未手动折叠 + 不在 standalone 路由
+  const panelShown =
+    !isStandalonePage && sidePanelVisible && viewHasPanel(activeView);
+  // 折叠按钮是否值得显示：当前视图本身要有 panel，否则按钮没有作用对象
+  const canTogglePanel = !isStandalonePage && viewHasPanel(activeView);
+  const { canGoBack, canGoForward } = useHistoryNav();
+  // Sider 永远只占 ActivityBar 宽度（48px），SidePanel 走绝对定位浮层覆盖在主区上方，
+  // 这样 panel 出现/消失不会让主内容横向 reflow，彻底消掉"home → notes"卡顿
+  const siderWidth = ACTIVITY_BAR_WIDTH;
+
+  // SidePanel 容器 DOM 引用：拖拽时直接改样式，避免 React 每 mousemove 重渲染
+  const panelRef = useRef<HTMLDivElement>(null);
+  const handleRef = useRef<HTMLDivElement>(null);
+
+  const startPanelResize = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = sidePanelWidth;
+      let pendingWidth = startW;
+      let rafId: number | null = null;
+
+      function applyWidth(w: number) {
+        const panel = panelRef.current;
+        if (panel) {
+          // 浮层模式下只需要改 width；不再依赖 flex（已脱离 Sider 内部 flex 容器）
+          panel.style.width = `${w}px`;
+        }
+        if (handleRef.current) {
+          handleRef.current.style.left = `${ACTIVITY_BAR_WIDTH + w - 2}px`;
+        }
+      }
+
+      function onMove(ev: MouseEvent) {
+        const next = Math.max(
+          SIDE_PANEL_MIN_WIDTH,
+          Math.min(SIDE_PANEL_MAX_WIDTH, startW + (ev.clientX - startX)),
+        );
+        pendingWidth = next;
+        if (rafId == null) {
+          rafId = requestAnimationFrame(() => {
+            rafId = null;
+            applyWidth(pendingWidth);
+          });
+        }
+      }
+      function onUp() {
+        if (rafId != null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+        document.body.classList.remove("sidebar-resizing");
+        // 松手时把最终宽度写入 store（触发一次渲染 + 持久化）
+        setSidePanelWidth(pendingWidth);
+      }
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+      document.body.classList.add("sidebar-resizing");
+    },
+    [sidePanelWidth, setSidePanelWidth],
+  );
+  const navigate = useNavigate();
+
+  // URL → activeView 单向同步：任意来源的 navigate（ActivityBar / 命令面板 /
+  // 快捷键 / 笔记列表跳转等）都会更新 store.activeView，保证 SidePanel 正确分发
+  useEffect(() => {
+    const derived = deriveActiveViewFromPath(location.pathname);
+    if (derived && derived !== useAppStore.getState().activeView) {
+      useAppStore.getState().setActiveView(derived);
+    }
+  }, [location.pathname]);
+
+  // 双击 md 打开本应用 / 应用内"打开 md"按钮后的系统级落点：
+  // 1) 首次启动：后端把 argv 里的 md 路径存到 AppState，这里拉一次
+  // 2) 已打开应用时：single-instance 插件把新 argv emit 成 "open-md-file" 事件
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+
+    async function openByPath(path: string) {
+      try {
+        const result = await importApi.openMarkdownFile(path);
+        if (result.wasSynced) {
+          message.info("已根据最新 md 文件同步笔记内容");
+        }
+        useAppStore.getState().bumpNotesRefresh();
+        navigate(`/notes/${result.noteId}`);
+      } catch (e) {
+        message.error(`打开 ${path} 失败: ${e}`);
+      }
+    }
+
+    // 启动时拉一次
+    invoke<string | null>("take_pending_open_md_path")
+      .then((path) => {
+        if (path) openByPath(path);
+      })
+      .catch(() => {
+        // 启动期没有 md 参数属于正常
+      });
+
+    // 监听"第二实例带来的 md 路径"
+    listen<string>("open-md-file", (ev) => {
+      if (ev.payload) openByPath(ev.payload);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+    // 依赖只放 navigate，避免重复注册
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 托盘菜单事件（新建/今日/搜索/同步结果），在应用全局只注册一次
+  useEffect(() => {
+    const unlisteners: UnlistenFn[] = [];
+
+    listen("tray:new-note", () => {
+      createBlankAndOpen(null, navigate, { useDefaults: true });
+    }).then((fn) => unlisteners.push(fn));
+
+    listen("tray:open-daily", () => {
+      navigate("/daily");
+    }).then((fn) => unlisteners.push(fn));
+
+    listen("tray:open-search", () => {
+      setPaletteOpen(true);
+    }).then((fn) => unlisteners.push(fn));
+
+    // 应用内 ASR 控制器 fallback：当 Ctrl+Shift+Space 触发时焦点不在可注入输入框，
+    // controller 会 dispatch window CustomEvent("asr:open_capture") → 这里打开 Modal
+    const onAsrOpenCapture = () => setAsrCaptureOpen(true);
+    window.addEventListener("asr:open_capture", onAsrOpenCapture);
+    unlisteners.push(() => window.removeEventListener("asr:open_capture", onAsrOpenCapture));
+
+    listen<{ success: boolean; error?: string; stats?: { notesCount?: number } }>(
+      "sync:manual-push-result",
+      (e) => {
+        if (e.payload.success) {
+          const n = e.payload.stats?.notesCount;
+          message.success(
+            typeof n === "number" ? `已同步 ${n} 条笔记到云端` : "同步成功"
+          );
+        } else {
+          message.error(`同步失败：${e.payload.error || "未知错误"}`);
+        }
+      }
+    ).then((fn) => unlisteners.push(fn));
+
+    // 全局快捷键「剪贴板 → 新笔记」捕获成功后的事件：刷新笔记列表 / 首页统计。
+    // 后端已经走系统通知反馈，这里只负责让 UI 跟上。
+    listen("quick_capture:note_created", () => {
+      useAppStore.getState().bumpNotesRefresh();
+    }).then((fn) => unlisteners.push(fn));
+
+    listen("tray:check-update", async () => {
+      const key = "tray-check-update";
+      message.loading({ content: "正在检查更新…", key, duration: 0 });
+      const r = await checkManually();
+      if (r.error) {
+        message.error({ content: `检查更新失败：${r.error}`, key });
+      } else if (!r.hasUpdate) {
+        message.success({ content: "已是最新版本", key });
+      } else {
+        // 有更新：checkManually 内部已自动打开 UpdateModal
+        message.destroy(key);
+      }
+    }).then((fn) => unlisteners.push(fn));
+
+    // 托盘 CheckMenuItem 切换"窗口置顶"后回传：skipEmit 避免再回流到 Rust
+    listen<boolean>("rust:always-on-top-changed", (e) => {
+      useAppStore.getState().setAlwaysOnTop(e.payload, { skipEmit: true });
+    }).then((fn) => unlisteners.push(fn));
+
+    return () => {
+      unlisteners.forEach((fn) => fn());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [asrCaptureOpen, setAsrCaptureOpen] = useState(false);
+  const { update, modalOpen, openModal, closeModal, checkManually } = useUpdateChecker();
+
+  // 启动时静默 pull：让用户从其他设备做的修改自动拉到本地，避免后续编辑产生冲突。
+  // 只主窗（label === 'main'）跑一次：pop-out 子窗共用同一个 DB，没必要重复 pull。
+  // 延迟 3s 让 UI 先就绪；失败用 message.warning 不打断当前页。
+  useEffect(() => {
+    const w = getAppWindow();
+    if (w && w.label !== "main") return;
+    const timer = setTimeout(async () => {
+      try {
+        const backends = await syncV1Api.listBackends();
+        const enabled = backends.filter((b) => b.enabled);
+        const errs: string[] = [];
+        for (const b of enabled) {
+          try {
+            await syncV1Api.pull(b.id);
+          } catch (e) {
+            errs.push(`${b.name}: ${e}`);
+          }
+        }
+        if (errs.length > 0) {
+          message.warning(`启动同步：${errs.length} 个后端拉取失败（${errs.join("；")}）`);
+        }
+      } catch {
+        // backends 列表读不到属于早期初始化阶段问题，静默
+      }
+    }, 3000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const themeMenuItems = [
+    { type: "group" as const, label: "亮色主题", children: getThemesByCategory("light").map(t => ({
+      key: t.key,
+      label: <span className="flex items-center gap-2">
+        <span className="flex gap-1">{t.colors.slice(0,3).map((c,i) => <span key={i} style={{width:10,height:10,borderRadius:3,background:c,display:'inline-block'}} />)}</span>
+        {t.label}
+      </span>,
+    }))},
+    { type: "group" as const, label: "暗色主题", children: getThemesByCategory("dark").map(t => ({
+      key: t.key,
+      label: <span className="flex items-center gap-2">
+        <span className="flex gap-1">{t.colors.slice(0,3).map((c,i) => <span key={i} style={{width:10,height:10,borderRadius:3,background:c,display:'inline-block'}} />)}</span>
+        {t.label}
+      </span>,
+    }))},
+  ];
+
+  function handleThemeSelect({ key }: { key: string }) {
+    const mode = key as ThemeMode;
+    if (mode.startsWith("light")) {
+      setLightTheme(mode);
+      setThemeCategory("light");
+    } else {
+      setDarkTheme(mode);
+      setThemeCategory("dark");
+    }
+  }
+
+  const handleGlobalKeyDown = useCallback((e: KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+      e.preventDefault();
+      setPaletteOpen((prev) => !prev);
+    }
+    if (e.key === "F1") {
+      e.preventDefault();
+      setShortcutsOpen((prev) => !prev);
+    }
+    if (e.key === "Escape" && focusMode) {
+      setFocusMode(false);
+    }
+    if (e.key === "F11") {
+      e.preventDefault();
+      setFocusMode(!focusMode);
+    }
+    // Alt + ←/→ 历史后退/前进
+    if (e.altKey && e.key === "ArrowLeft") {
+      e.preventDefault();
+      navigate(-1);
+    }
+    if (e.altKey && e.key === "ArrowRight") {
+      e.preventDefault();
+      navigate(1);
+    }
+    // Ctrl/Cmd + N 新建笔记
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
+      e.preventDefault();
+      createBlankAndOpen(null, navigate, { useDefaults: true });
+    }
+  }, [focusMode, setFocusMode, navigate]);
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [handleGlobalKeyDown]);
+
+  return (
+    <Layout
+      style={{ height: "100vh", position: "relative" }}
+      // 全局右键守卫：input/textarea/[contenteditable=true] 白名单（搜索框 / Tiptap 编辑器
+      // 内部仍走浏览器原生剪切/复制/粘贴菜单），其他位置吞 WebView 默认菜单。
+      // 各 panel / 页面已接入的自定义菜单子级 onContextMenu 先跑 preventDefault + ctx.open，
+      // 不影响。这相当于提前启用 #16 守卫的等效效果——P0/P1 已接入完，体验全局一致
+      onContextMenu={(e) => {
+        const t = e.target as HTMLElement | null;
+        if (!t) return;
+        if (t.closest("input, textarea, [contenteditable='true']")) return;
+        e.preventDefault();
+      }}
+    >
+      {activeTheme === "dark-starry" && <StarryBackground />}
+      {!focusMode && (
+        <Sider
+          width={siderWidth}
+          style={{
+            borderRight: `1px solid ${token.colorBorderSecondary}`,
+            // Mac 上 titleBarStyle: "Overlay" 使系统红黄绿按钮悬浮在窗口左上角，
+            // 给 Sider 顶部留出高度避免按钮压住菜单项
+            paddingTop: IS_MAC ? 28 : 0,
+          }}
+        >
+          <ActivityBar />
+        </Sider>
+      )}
+      {/*
+        SidePanel 浮层：用 absolute 覆盖在主区上方而不是占布局位置。
+        切到/离开有 panel 的 view 时，主区不会因 sider 宽度变化而回流，
+        消除 home→notes 的卡顿。
+      */}
+      {!focusMode && panelShown && (
+        <div
+          ref={panelRef}
+          className="side-panel-enter"
+          style={{
+            position: "absolute",
+            top: IS_MAC ? 28 : 0,
+            left: ACTIVITY_BAR_WIDTH,
+            width: sidePanelWidth,
+            bottom: 0,
+            // 高透明度让主区背景自然透出，视觉融入主体不显"浮层卡片"
+            // hex 后缀 80 ≈ 50% alpha；亮/暗色主题都能从 token.colorBgContainer 自动取
+            background: `${token.colorBgContainer}80`,
+            backdropFilter: "blur(10px) saturate(180%)",
+            WebkitBackdropFilter: "blur(10px) saturate(180%)",
+            borderRight: `1px solid ${token.colorBorderSecondary}`,
+            overflow: "hidden",
+            zIndex: 40,
+          }}
+        >
+          <SidePanel />
+        </div>
+      )}
+      {/* 可拖拽调节 SidePanel 宽度的手柄：绝对定位叠在 SidePanel 右边缘 */}
+      {!focusMode && panelShown && (
+        <div
+          ref={handleRef}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="拖动调整面板宽度"
+          onMouseDown={startPanelResize}
+          onDoubleClick={() => setSidePanelWidth(SIDE_PANEL_DEFAULT_WIDTH)}
+          title="拖动调整宽度（双击恢复默认）"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: ACTIVITY_BAR_WIDTH + sidePanelWidth - 2,
+            width: 5,
+            height: "100%",
+            cursor: "col-resize",
+            zIndex: 50,
+            background: "transparent",
+          }}
+          className="hover:bg-blue-500/20 active:bg-blue-500/40 transition-colors"
+        />
+      )}
+      <Layout
+        style={{
+          // 主区让出 SidePanel 的宽度，避免被浮层遮挡。
+          // 浮层只做出现/消失的动画，主区用 transition 平滑过渡 margin，
+          // 二者解耦：sider 宽度永远不变（无 reflow 卡顿），只有这个 margin 在变化。
+          //
+          // 专注模式下 SidePanel 浮层本身被隐藏，但若仍套用旧 margin 会在主区
+          // 左侧留出 ~280px 空白，所以这里用 focusMode 一并清掉
+          marginLeft: !focusMode && panelShown ? sidePanelWidth : 0,
+          transition: "margin-left 180ms cubic-bezier(0.2, 0.8, 0.2, 1)",
+        }}
+      >
+        {!focusMode && (
+        <Header
+          style={{
+            padding: 0,
+            height: 48,
+            lineHeight: "48px",
+            display: "flex",
+            alignItems: "center",
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 4, paddingLeft: HEADER_LEFT_PADDING }}>
+            {canTogglePanel && (
+              <Tooltip title={sidePanelVisible ? "折叠面板" : "展开面板"}>
+                <Button
+                  type="text"
+                  icon={
+                    sidePanelVisible ? (
+                      <PanelLeftClose size={16} />
+                    ) : (
+                      <PanelLeftOpen size={16} />
+                    )
+                  }
+                  onClick={toggleSidePanel}
+                />
+              </Tooltip>
+            )}
+            <Tooltip title="后退 (Alt+←)">
+              <Button
+                type="text"
+                icon={<ArrowLeft size={16} />}
+                disabled={!canGoBack}
+                onClick={() => navigate(-1)}
+              />
+            </Tooltip>
+            <Tooltip title="前进 (Alt+→)">
+              <Button
+                type="text"
+                icon={<ArrowRight size={16} />}
+                disabled={!canGoForward}
+                onClick={() => navigate(1)}
+              />
+            </Tooltip>
+          </div>
+          {/* DragRegion 拆成左右两半，InstanceBadge 居中显示当前多开实例 */}
+          <DragRegion />
+          <InstanceBadge />
+          <DragRegion />
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <UpdateBadge update={update} onClick={openModal} />
+            <Tooltip title="搜索 (Ctrl+K)">
+              <Button
+                type="text"
+                icon={<Search size={16} />}
+                onClick={() => setPaletteOpen(true)}
+              />
+            </Tooltip>
+            <Dropdown menu={{ items: themeMenuItems, onClick: handleThemeSelect, selectedKeys: [activeTheme] }} trigger={["click"]}>
+              <Tooltip title="切换主题">
+                <Button type="text" icon={<Palette size={16} />} />
+              </Tooltip>
+            </Dropdown>
+            <SyncStatusButton />
+            <Button
+              type="text"
+              icon={<SettingOutlined />}
+              onClick={() => navigate("/settings")}
+              title="设置"
+            />
+            <Tooltip title={alwaysOnTop ? "取消置顶" : "窗口置顶"}>
+              <Button
+                type="text"
+                icon={alwaysOnTop ? <PushpinFilled /> : <PushpinOutlined />}
+                onClick={() => setAlwaysOnTop(!alwaysOnTop)}
+                style={alwaysOnTop ? { color: token.colorPrimary } : undefined}
+              />
+            </Tooltip>
+            {!IS_MAC && <WindowControls />}
+          </div>
+        </Header>
+        )}
+        {!focusMode && <TabBar />}
+        <Content
+          style={{
+            padding: focusMode ? 0 : 24,
+            // popout 窗口用 OS 原生标题栏（decorations:true），顶部 ~32px 被系统占用，
+            // 给内容让位，否则编辑器 topbar 会被系统标题栏盖住
+            paddingTop: isPopoutWindow ? 32 : (focusMode ? 0 : 24),
+            // popout 模式下两侧给一点透气 padding，主窗有 SidePanel/Sider 视觉分隔，
+            // popout 内容直接贴窗框看着挤
+            paddingLeft: isPopoutWindow ? 16 : undefined,
+            paddingRight: isPopoutWindow ? 16 : undefined,
+            overflow: "auto",
+          }}
+        >
+          <Outlet />
+        </Content>
+      </Layout>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onOpenShortcuts={() => { setPaletteOpen(false); setShortcutsOpen(true); }}
+      />
+      <ShortcutsPanel open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <QuickCaptureAsrModal
+        open={asrCaptureOpen}
+        onClose={() => setAsrCaptureOpen(false)}
+      />
+      <UpdateModal open={modalOpen} onClose={closeModal} update={update} />
+      <ExitConfirmListener />
+      <CloseRequestedListener />
+      <AsrToggleController />
+    </Layout>
+  );
+}
