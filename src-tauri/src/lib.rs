@@ -9,6 +9,7 @@ mod tray;
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use state::AppState;
 use tauri::{Emitter, Manager, WindowEvent};
@@ -674,12 +675,37 @@ pub fn run() {
                 },
             );
 
+            // ─── 初始化知识库数据库（knowledge.db）─────────────
+            // 独立数据库，与 app.db 完全隔离
+            let knowledge_db_path = instance_dir.join("knowledge.db");
+            let knowledge_db = match knowledge_db::open_database(&knowledge_db_path) {
+                Ok(conn) => {
+                    log::info!("知识库数据库初始化完成: {}", knowledge_db_path.display());
+                    Some(Arc::new(knowledge_db::Database::new(conn)))
+                }
+                Err(e) => {
+                    log::warn!("[knowledge-db] 初始化失败，知识库功能将不可用: {}", e);
+                    None
+                }
+            };
+
+            // ─── 初始化 llama-server HTTP client（可选）──────────
+            // 从配置读取 llama-server 地址，失败不阻断启动
+            let llama = None; // TODO: 从配置读取 llama-server URL
+
+            // ─── 初始化 meilisearch HTTP client（可选）──────────
+            // 从配置读取 meilisearch 地址，失败不阻断启动
+            let meilisearch = None; // TODO: 从配置读取 meilisearch URL
+
             // 注册全局状态
             let state = AppState::new(
                 db,
                 instance_dir.clone(),
                 instance_id,
                 mcp_internal,
+                knowledge_db,
+                llama,
+                meilisearch,
                 lock_file,
             );
 

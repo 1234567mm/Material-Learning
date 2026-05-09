@@ -6,6 +6,9 @@ use tokio::sync::{watch, Notify};
 
 use crate::database::Database;
 use crate::services::vault::VaultState;
+use crate::services::llama::LlamaClient;
+use crate::services::meilisearch::MeilisearchClient;
+use knowledge_db::Database as KbDatabase;
 
 /// In-memory MCP client：通过 tokio::io::duplex 与同进程内的 KbServer 通信。
 /// 让主应用代码也能用统一的 MCP 协议消费 12 工具，而不是直接调 services::*。
@@ -36,6 +39,12 @@ pub struct AppState {
     /// In-memory MCP client（指向同进程内的 KbServer）。
     /// `Option` 是因为初始化失败不应阻断主应用启动 —— None 时 mcp_internal_* 命令会报"未就绪"。
     pub mcp_internal: Option<Arc<InternalMcpClient>>,
+    /// 知识库数据库（knowledge.db）
+    pub knowledge_db: Option<Arc<KbDatabase>>,
+    /// llama-server HTTP client（可选，启动失败不阻断）
+    pub llama: Option<Arc<LlamaClient>>,
+    /// meilisearch HTTP client（可选，启动失败不阻断）
+    pub meilisearch: Option<Arc<MeilisearchClient>>,
     /// 外部 MCP server client 缓存（M5-2）。每个用户加的 server 对应一个子进程 + client。
     /// 进程级单例：第一次访问时 spawn，后续请求复用。
     /// 仅桌面端：移动端 fork/spawn 受限，没有外部 MCP 概念
@@ -51,6 +60,9 @@ impl AppState {
         data_dir: PathBuf,
         instance_id: Option<u32>,
         mcp_internal: Option<Arc<InternalMcpClient>>,
+        knowledge_db: Option<Arc<KbDatabase>>,
+        llama: Option<Arc<LlamaClient>>,
+        meilisearch: Option<Arc<MeilisearchClient>>,
         lock_file: Option<File>,
     ) -> Self {
         Self {
@@ -63,6 +75,9 @@ impl AppState {
             pending_open_md_path: Mutex::new(None),
             vault: RwLock::new(VaultState::default()),
             mcp_internal,
+            knowledge_db,
+            llama,
+            meilisearch,
             #[cfg(desktop)]
             mcp_external: Arc::new(crate::services::mcp_client::McpClientManager::new()),
             _lock_file: lock_file,

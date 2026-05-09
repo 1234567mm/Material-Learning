@@ -3026,54 +3026,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "knowledge_base"
-version = "1.8.1"
+name = "knowledge-db"
+version = "0.1.0"
 dependencies = [
- "aes-gcm",
- "argon2",
- "base64 0.22.1",
- "calamine",
- "chardetng",
  "chrono",
- "docx-rs",
- "encoding_rs",
- "futures",
- "hostname",
- "html2md",
- "kb-core",
- "log",
- "pdf-extract",
- "pdfium-render",
- "pulldown-cmark",
- "rand 0.8.5",
- "regex",
- "reqwest 0.12.28",
- "rmcp",
  "rusqlite",
- "rust-s3",
  "serde",
  "serde_json",
- "serde_yml",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-log",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tauri-plugin-process",
- "tauri-plugin-store",
- "tauri-plugin-updater",
  "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "urlencoding",
- "walkdir",
- "zeroize",
- "zip 2.4.2",
 ]
 
 [[package]]
@@ -3341,6 +3301,58 @@ name = "matches"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2532096657941c2fea9c289d370a250971c689d4f143798ff67113ec042024a5"
+
+[[package]]
+name = "material_learning"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "argon2",
+ "base64 0.22.1",
+ "calamine",
+ "chardetng",
+ "chrono",
+ "docx-rs",
+ "encoding_rs",
+ "futures",
+ "hostname",
+ "html2md",
+ "kb-core",
+ "knowledge-db",
+ "log",
+ "pdf-extract",
+ "pdfium-render",
+ "pulldown-cmark",
+ "rand 0.8.5",
+ "regex",
+ "reqwest 0.12.28",
+ "rmcp",
+ "rusqlite",
+ "rust-s3",
+ "serde",
+ "serde_json",
+ "serde_yml",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-log",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tauri-plugin-process",
+ "tauri-plugin-store",
+ "tauri-plugin-updater",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "urlencoding",
+ "walkdir",
+ "zeroize",
+ "zip 2.4.2",
+]
 
 [[package]]
 name = "maybe-async"

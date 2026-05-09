@@ -47,7 +47,6 @@
     "active": true,
     "targets": ["nsis"],
     "createUpdaterArtifacts": "v1Compatible",
-    "externalBin": ["binaries/kb-mcp"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -55,7 +54,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["resources/pdfium/*"],
     "fileAssociations": [
       {
         "ext": ["md", "markdown"],
@@ -72,8 +70,7 @@
       "nsis": {
         "displayLanguageSelector": true,
         "languages": ["SimpChinese", "English"],
-        "installerIcon": "icons/icon.ico",
-        "installerHooks": "./installer-hooks.nsi"
+        "installerIcon": "icons/icon.ico"
       }
     },
     "macOS": {

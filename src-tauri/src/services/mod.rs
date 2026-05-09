@@ -52,6 +52,10 @@ pub mod skills;
 pub mod source_file;
 pub mod source_writeback;
 pub mod sync;
+// llama-server HTTP client（可选，启动失败不阻断）
+pub mod llama;
+// meilisearch HTTP client（可选，启动失败不阻断）
+pub mod meilisearch;
 pub mod sync_scheduler;
 pub mod sync_v1;
 pub mod sync_v1_scheduler;
