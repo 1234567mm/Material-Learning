@@ -219,6 +219,29 @@ impl Database {
         })
     }
 
+    pub fn get_chat_session(&self, id: i64) -> KbResult<ChatSession> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, panel_id, title, created_at, updated_at, ended_at, is_active
+                 FROM chat_sessions WHERE id = ?1"
+            )?;
+            stmt.query_row([id], |row| {
+                Ok(ChatSession {
+                    id: row.get(0)?,
+                    panel_id: row.get(1)?,
+                    title: row.get(2)?,
+                    created_at: row.get(3)?,
+                    updated_at: row.get(4)?,
+                    ended_at: row.get(5)?,
+                    is_active: row.get::<_, i64>(6)? != 0,
+                })
+            }).map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => KbError::NotFound(format!("Chat session {}", id)),
+                _ => KbError::Database(e),
+            })
+        })
+    }
+
     // ==================== Chat Message CRUD ====================
 
     pub fn add_message(&self, session_id: i64, role: &str, content: &str, token_count: Option<i64>) -> KbResult<i64> {

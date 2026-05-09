@@ -690,8 +690,48 @@ pub fn run() {
             };
 
             // ─── 初始化 llama-server HTTP client（可选）──────────
-            // 从配置读取 llama-server 地址，失败不阻断启动
-            let llama = None; // TODO: 从配置读取 llama-server URL
+            // 从配置读取 llama-server 参数，启动子进程
+            // 失败不阻断启动（Option 包装），用户可在设置页重新配置
+            let llama = {
+                let model_path = db.get_config("llama_model_path")
+                    .ok().flatten().clone();
+                let base_url = db.get_config("llama_base_url")
+                    .ok().flatten().unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
+                let model = db.get_config("llama_model")
+                    .ok().flatten().unwrap_or_else(|| "model".to_string());
+                let port: u16 = db.get_config("llama_port")
+                    .ok().flatten()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(8080);
+                let enabled = db.get_config("llama_enabled")
+                    .ok().flatten().as_deref() == Some("1");
+
+                if !enabled {
+                    log::info!("[llama] llama-server is disabled in config");
+                    None
+                } else if let Some(path) = model_path {
+                    log::info!("[llama] spawning llama-server: model={}, base_url={}", path, base_url);
+                    match tauri::async_runtime::block_on(
+                        services::llama::spawn_llama_server(&path, &base_url, &model, port)
+                    ) {
+                        Ok(Some(server)) => {
+                            log::info!("[llama] llama-server started successfully");
+                            Some(server.client())
+                        }
+                        Ok(None) => {
+                            log::warn!("[llama] spawn returned None (shouldn't happen)");
+                            None
+                        }
+                        Err(e) => {
+                            log::warn!("[llama] failed to start llama-server: {}", e);
+                            None
+                        }
+                    }
+                } else {
+                    log::info!("[llama] llama_model_path not configured, skipping spawn");
+                    None
+                }
+            };
 
             // ─── 初始化 meilisearch HTTP client（可选）──────────
             // 从配置读取 meilisearch 地址，失败不阻断启动
@@ -1029,6 +1069,11 @@ pub fn run() {
             // 孤儿素材统一清理（替代旧的 scan_orphan_images / clean_orphan_images）
             commands::orphan::scan_orphan_assets,
             commands::orphan::clean_orphan_assets,
+            // 知识库聊天模块
+            commands::chat::create_chat_session,
+            commands::chat::send_message,
+            commands::chat::end_chat_session,
+            commands::chat::get_chat_messages,
             // 视频模块
             commands::videos::save_video,
             commands::videos::save_video_from_path,

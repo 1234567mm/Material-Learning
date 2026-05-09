@@ -84,7 +84,6 @@ impl MeilisearchClient {
     }
 
     pub async fn ensure_index(&self) -> MeilisearchResult<()> {
-        let url = format!("{}/indexes/{}/documents", self.base_url, self.index_name);
         // Create index if not exists (POST is idempotent for index creation)
         let response = self.http_client
             .post(&format!("{}/indexes", self.base_url))

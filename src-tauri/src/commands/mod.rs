@@ -14,6 +14,7 @@ pub mod links;
 pub mod mcp;
 pub mod notes;
 pub mod orphan;
+pub mod chat;
 pub mod pdf;
 pub mod prompt;
 pub mod search;
