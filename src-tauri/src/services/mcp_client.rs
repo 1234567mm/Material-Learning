@@ -16,6 +16,53 @@ use tokio::sync::Mutex;
 use crate::error::AppError;
 use crate::models::McpServer;
 
+/// 允许作为 MCP server command 的基础 binary 白名单。
+/// 避免攻击者把 server.command 改成 /bin/bash 等进行任意命令执行。
+const ALLOWED_COMMANDS: &[&str] = &[
+    "npx", "node", "npm", "yarn", "pnpm",
+    "python3", "python", "uv",
+    "deno",
+    "bun", "sh",
+];
+
+/// 危险的 shell 元字符序列，禁止出现在 args 中（防止 ; / | / && / > 等注入）
+const DANGEROUS_ARGS: &[&str] = &[
+    ";", "|", "&&", "||", ">", ">>", "<", "<<",
+    "`", "$(", "${",
+];
+
+/// 验证 MCP server command 是否安全。
+/// - command 必须是白名单中的基础 binary
+/// - args 中不能包含危险 shell 元字符
+fn validate_server_command(command: &str, args: &[String]) -> Result<(), AppError> {
+    // 检查 command 是否在白名单中（basename 比对）
+    let cmd_basename = std::path::Path::new(command)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(command);
+
+    if !ALLOWED_COMMANDS.contains(&cmd_basename) {
+        return Err(AppError::Custom(format!(
+            "MCP server command '{}' 不在允许列表中，仅允许: {}",
+            cmd_basename,
+            ALLOWED_COMMANDS.join(", ")
+        )));
+    }
+
+    // 检查 args 中是否有危险 shell 注入模式
+    for arg in args {
+        let arg_lower = arg.to_lowercase();
+        if DANGEROUS_ARGS.iter().any(|pat| arg_lower.contains(&pat.to_lowercase())) {
+            return Err(AppError::Custom(format!(
+                "MCP server args 包含危险字符 '{}'，拒绝执行",
+                arg
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 /// 与 in-memory client 同类型：RoleClient + 不响应 server-initiated 请求
 type ExternalClient = Arc<rmcp::service::RunningService<rmcp::RoleClient, ()>>;
 
@@ -43,6 +90,9 @@ impl McpClientManager {
                 server.name
             )));
         }
+
+        // 安全验证：command 白名单 + args 危险字符检查
+        validate_server_command(&server.command, &server.args)?;
 
         let mut guard = self.clients.lock().await;
         if let Some(c) = guard.get(&server.id) {

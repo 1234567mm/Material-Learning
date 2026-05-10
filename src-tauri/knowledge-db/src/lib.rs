@@ -60,6 +60,23 @@ pub struct Summary {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct ChunkEmbedding {
+    pub chunk_id: i64,
+    pub file_id: i64,
+    pub chunk_index: i64,
+    pub content: String,
+    pub embedding: Vec<f32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SimilarityHit {
+    pub chunk_id: i64,
+    pub file_id: i64,
+    pub content: String,
+    pub score: f32,
+}
+
 pub struct Database {
     conn: Mutex<Connection>,
 }
@@ -400,5 +417,61 @@ impl Database {
             )?;
             Ok(())
         })
+    }
+
+    // ==================== Vector Search ====================
+
+    pub fn get_chunk_embeddings(&self, panel_id: i64) -> KbResult<Vec<ChunkEmbedding>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT fc.id, fc.file_id, fc.chunk_index, fc.content, fc.embedding_ref
+                 FROM file_chunks fc
+                 JOIN files f ON fc.file_id = f.id
+                 WHERE f.panel_id = ?1 AND fc.embedding_ref IS NOT NULL"
+            )?;
+            let chunks = stmt.query_map([panel_id], |row| {
+                let embedding_blob: Option<Vec<u8>> = row.get(4)?;
+                let embedding: Vec<f32> = embedding_blob.map(|blob| {
+                    blob.chunks_exact(4)
+                        .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+                        .collect()
+                }).unwrap_or_default();
+                Ok(ChunkEmbedding {
+                    chunk_id: row.get(0)?,
+                    file_id: row.get(1)?,
+                    chunk_index: row.get(2)?,
+                    content: row.get(3)?,
+                    embedding,
+                })
+            })?.collect::<Result<Vec<_>, _>>()?;
+            Ok(chunks)
+        })
+    }
+
+    pub fn search_similar(&self, query_embedding: &[f32], panel_id: i64, limit: usize) -> KbResult<Vec<SimilarityHit>> {
+        let chunks = self.get_chunk_embeddings(panel_id)?;
+        let q_len = (query_embedding.iter().map(|x| x * x).sum::<f32>()).sqrt();
+        if q_len == 0.0 {
+            return Ok(vec![]);
+        }
+        let mut scored: Vec<_> = chunks
+            .into_iter()
+            .filter_map(|chunk| {
+                let e_len = (chunk.embedding.iter().map(|x| x * x).sum::<f32>()).sqrt();
+                if e_len == 0.0 {
+                    return None;
+                }
+                let dot: f32 = query_embedding.iter().zip(chunk.embedding.iter()).map(|(a, b)| a * b).sum();
+                let score = dot / (q_len * e_len);
+                Some((chunk, score))
+            })
+            .collect();
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(scored.into_iter().take(limit).map(|(chunk, score)| SimilarityHit {
+            chunk_id: chunk.chunk_id,
+            file_id: chunk.file_id,
+            content: chunk.content,
+            score,
+        }).collect())
     }
 }

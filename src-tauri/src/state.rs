@@ -7,7 +7,6 @@ use tokio::sync::{watch, Notify};
 use crate::database::Database;
 use crate::services::vault::VaultState;
 use crate::services::llama::LlamaClient;
-use crate::services::meilisearch::MeilisearchClient;
 use knowledge_db::Database as KbDatabase;
 
 /// In-memory MCP client：通过 tokio::io::duplex 与同进程内的 KbServer 通信。
@@ -44,7 +43,7 @@ pub struct AppState {
     /// llama-server HTTP client（可选，启动失败不阻断）
     pub llama: Option<Arc<LlamaClient>>,
     /// meilisearch HTTP client（可选，启动失败不阻断）
-    pub meilisearch: Option<Arc<MeilisearchClient>>,
+    pub meilisearch: Option<Arc<crate::services::meilisearch::MeilisearchServer>>,
     /// 外部 MCP server client 缓存（M5-2）。每个用户加的 server 对应一个子进程 + client。
     /// 进程级单例：第一次访问时 spawn，后续请求复用。
     /// 仅桌面端：移动端 fork/spawn 受限，没有外部 MCP 概念
@@ -62,7 +61,7 @@ impl AppState {
         mcp_internal: Option<Arc<InternalMcpClient>>,
         knowledge_db: Option<Arc<KbDatabase>>,
         llama: Option<Arc<LlamaClient>>,
-        meilisearch: Option<Arc<MeilisearchClient>>,
+        meilisearch: Option<Arc<crate::services::meilisearch::MeilisearchServer>>,
         lock_file: Option<File>,
     ) -> Self {
         Self {

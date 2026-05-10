@@ -7,6 +7,7 @@ mod state;
 #[cfg(desktop)]
 mod tray;
 
+use services::config::ConfigService;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -693,8 +694,9 @@ pub fn run() {
             // 从配置读取 llama-server 参数，启动子进程
             // 失败不阻断启动（Option 包装），用户可在设置页重新配置
             let llama = {
-                let model_path = db.get_config("llama_model_path")
-                    .ok().flatten().clone();
+                // 优先解密读取，失败则尝试明文（兼容旧版明文存储）
+                let model_path = ConfigService::get_decrypted_or_raw(&db, "llama_model_path")?
+                    .or_else(|| db.get_config("llama_model_path").ok().flatten().filter(|v| !v.is_empty()));
                 let base_url = db.get_config("llama_base_url")
                     .ok().flatten().unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
                 let model = db.get_config("llama_model")
@@ -734,8 +736,44 @@ pub fn run() {
             };
 
             // ─── 初始化 meilisearch HTTP client（可选）──────────
-            // 从配置读取 meilisearch 地址，失败不阻断启动
-            let meilisearch = None; // TODO: 从配置读取 meilisearch URL
+            // 从配置读取 meilisearch 参数，启动子进程
+            // 失败不阻断启动（Option 包装），用户可在设置页重新配置
+            let meilisearch = {
+                let enabled = db
+                    .get_config("meilisearch_enabled")
+                    .ok().flatten().as_deref() == Some("1");
+                let url = db
+                    .get_config("meilisearch_url")
+                    .ok().flatten()
+                    .unwrap_or_else(|| "http://127.0.0.1:7700".to_string());
+                let index_name = db
+                    .get_config("meilisearch_index")
+                    .ok().flatten()
+                    .unwrap_or_else(|| "knowledge".to_string());
+
+                if !enabled {
+                    log::info!("[meilisearch] meilisearch is disabled in config");
+                    None
+                } else {
+                    log::info!("[meilisearch] spawning meilisearch: url={}, index={}", url, index_name);
+                    match tauri::async_runtime::block_on(
+                        services::meilisearch::spawn_meilisearch(&instance_dir, &url, &index_name)
+                    ) {
+                        Ok(Some(server)) => {
+                            log::info!("[meilisearch] meilisearch started successfully");
+                            Some(Arc::new(server))
+                        }
+                        Ok(None) => {
+                            log::warn!("[meilisearch] spawn returned None (shouldn't happen)");
+                            None
+                        }
+                        Err(e) => {
+                            log::warn!("[meilisearch] failed to start meilisearch: {}", e);
+                            None
+                        }
+                    }
+                }
+            };
 
             // 注册全局状态
             let state = AppState::new(
@@ -912,6 +950,8 @@ pub fn run() {
             commands::config::get_config,
             commands::config::set_config,
             commands::config::delete_config,
+            commands::config::set_encrypted_config,
+            commands::config::get_encrypted_config,
             // 笔记模块
             commands::notes::create_note,
             commands::notes::update_note,
@@ -1074,6 +1114,9 @@ pub fn run() {
             commands::chat::send_message,
             commands::chat::end_chat_session,
             commands::chat::get_chat_messages,
+            // 知识库搜索模块
+            commands::knowledge_search::search_knowledge,
+            commands::knowledge_search::similar_chunks,
             // 视频模块
             commands::videos::save_video,
             commands::videos::save_video_from_path,

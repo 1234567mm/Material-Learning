@@ -345,6 +345,22 @@ fn strip_html(html: &str) -> String {
     result
 }
 
+/// 对 RAG 上下文内容做转义，防止通过笔记内容进行 prompt injection。
+/// 转义控制字符（\x00-\x1f，保留 \n \t），避免意外 prompt 行为。
+fn escape_for_prompt(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 64);
+    for ch in text.chars() {
+        match ch {
+            // 控制字符（除 \n \t 外）可能导致 prompt 注入或意外截断
+            '\x00'..='\x1f' if ch != '\n' && ch != '\t' => {
+                out.push_str(&format!("\\x{:02x}", ch as u8));
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 impl AiService {
     /// AI 写作辅助：选中文本 + 操作指令 → 流式返回结果
     ///
@@ -934,10 +950,10 @@ impl AiService {
 
                     let snippet = if plain_chars <= single_max {
                         // 全文放得下：直接全文塞入（避免任何信息丢失）
-                        plain
+                        escape_for_prompt(&plain)
                     } else {
                         // 全文放不下：smart window 截窗（围绕命中关键词）
-                        extract_window_for_rag(&plain, user_message, single_max)
+                        escape_for_prompt(&extract_window_for_rag(&plain, user_message, single_max))
                     };
 
                     used += snippet.chars().count();
@@ -2870,8 +2886,10 @@ mod draft_note_tests {
                 sort_order: 0,
                 children: vec![],
                 note_count: 0,
+                color: None,
             }],
             note_count: 0,
+            color: None,
         };
         let mut out = Vec::new();
         collect_folder_paths(&[f], "", &mut out);
