@@ -949,10 +949,8 @@ impl AiService {
                     let single_max = SINGLE_NOTE_HARD_CAP.min(remaining);
 
                     let snippet = if plain_chars <= single_max {
-                        // 全文放得下：直接全文塞入（避免任何信息丢失）
                         escape_for_prompt(&plain)
                     } else {
-                        // 全文放不下：smart window 截窗（围绕命中关键词）
                         escape_for_prompt(&extract_window_for_rag(&plain, user_message, single_max))
                     };
 
