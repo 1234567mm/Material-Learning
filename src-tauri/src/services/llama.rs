@@ -200,9 +200,10 @@ fn finalize_server(
     base_url: &str,
     model: &str,
 ) -> LlamaServer {
+    let child = child_opt.take().expect("child already taken");
     let inner_client = Arc::new(LlamaClient::new(base_url.to_string(), model.to_string(), None));
     let server = Arc::new(LlamaServer {
-        child: Mutex::new(child_opt.take()),
+        child: Mutex::new(Some(child)),
         client: inner_client.clone(),
     });
     let outer_client = Arc::new(LlamaClient::new(
@@ -211,7 +212,7 @@ fn finalize_server(
         Some(server.clone()),
     ));
     LlamaServer {
-        child: Mutex::new(child_opt.take()),
+        child: Mutex::new(None),
         client: outer_client,
     }
 }
