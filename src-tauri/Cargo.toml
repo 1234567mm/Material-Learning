@@ -1,0 +1,127 @@
+# ─── Workspace 根 ────────────────────────────────────
+# 引入 mcp/ 子 crate 用来构建独立的 kb-mcp.exe（MCP Server sidecar）。
+# 主 package（knowledge_base）仍然是 root member，原有 cargo build 行为不变。
+# kb-mcp 完全独立、不依赖主包，避免被 cdylib + tauri 牵扯，编译出独立 binary。
+[workspace]
+# kb-core: 共享 lib，KbDb + KbServer + 12 个工具实现，主应用和 kb-mcp 都依赖它
+# mcp: stdio MCP server binary，依赖 kb-core
+# knowledge-db: 知识库主数据库，实现 knowledge.db schema 和 CRUD
+members = ["kb-core", "mcp", "knowledge-db"]
+
+[package]
+name = "material_learning"
+version = "0.1.0"
+description = "科研工作流知识库 - 本地 AI 推理，精准上下文注入，个人画像"
+authors = ["Material Learning"]
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "material_learning_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# ─── 跨平台核心依赖（桌面 + 移动端共用）────────────────
+# tauri：tray-icon feature 仅桌面端可用，已下移到 target.desktop dependencies
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-store = "2"
+tauri-plugin-log = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+rusqlite = { version = "0.31", features = ["bundled"] }
+log = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+tauri-plugin-process = "2"
+# reqwest：移动端 NDK 不带 OpenSSL，统一用 rustls-tls（桌面端也能用，行为一致；
+# 系统证书池靠 rustls-native-certs 加载，避免迁移成本）
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "rustls-tls-native-roots"] }
+tokio = { version = "1", features = ["sync", "fs", "io-util", "rt", "rt-multi-thread"] }
+# T-024b S3 协议 backend：rust-s3 0.34 即使开 tokio-rustls-tls 也强制带 native-tls/openssl
+# 链接，移动端 NDK 不带 OpenSSL 编译失败 → 整段移到 target.desktop dependencies
+# 移动端按 T-M014 计划改"手动同步 + 仅 WebDAV/local"，等 rust-s3 修了 features 隔离再启用
+tokio-util = { version = "0.7", features = ["io"] }
+futures = "0.3"
+tauri-plugin-dialog = "2"
+walkdir = "2"
+pulldown-cmark = "0.13.1"
+html2md = "0.2"
+# T-009 OB 整库导入：解析 markdown 头部 YAML frontmatter（tags / aliases / 等）
+serde_yml = "0.0.12"
+# T-009 OB 整库导入：识别 markdown / OB-wiki 形式的图片引用（`![](...)` / `![[...]]`）
+regex = "1"
+base64 = "0.22.1"
+pdf-extract = "0.9"
+# ─── 同步功能 ────────────────────────────────────
+zip = "2.2"
+sha2 = "0.10"
+hostname = "0.4"
+urlencoding = "2"
+aes-gcm = "0.10"
+# T-007 笔记加密：Argon2id 密码派生 + zeroize 在 drop 时清零敏感内存；rand 生成盐/nonce
+argon2 = "0.5"
+zeroize = { version = "1", features = ["zeroize_derive"] }
+tauri-plugin-notification = "2"
+tauri-plugin-clipboard-manager = "2"
+rand = "0.8"
+# T-027 .txt 导入：很多旧 txt 是 GBK / GB18030 / Big5，必须先嗅探编码再转 UTF-8
+# chardetng / encoding_rs 是纯 Rust 编码识别工具，移动端可编译
+chardetng = "0.1"
+encoding_rs = "0.8"
+# kb-core: 共享的 MCP server 实现（KbDb + KbServer + 12 工具），
+# 主应用在进程内 spawn KbServer，让自家 AI 对话页通过 MCP 协议消费同一套工具
+kb-core = { path = "kb-core" }
+# knowledge-db: 知识库主数据库（knowledge.db），桌面端知识管理
+knowledge-db = { path = "knowledge-db" }
+# rmcp client：in-memory transport 调用同进程 KbServer（双端通用）
+# transport-child-process 仅桌面端用（spawn 外部 MCP server），移到 target.desktop
+rmcp = { version = "1.5", features = ["client"] }
+# Excel / ODS 解析、Word 导出、txt 编码识别 — 双端通用纯 Rust 工具
+# 这些在原文件上面已声明 calamine / docx-rs / chardetng / encoding_rs 等，保持位置不变
+
+# ─── 桌面专属依赖（cfg(desktop) 编译时启用；移动端不引入）────
+[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+# 系统托盘 feature
+tauri = { version = "2", features = ["tray-icon"] }
+# 桌面专属插件
+tauri-plugin-updater = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-global-shortcut = "2"
+# PDFium fallback（pdf-extract 对中文 CMap 不支持，运行时动态加载 pdfium.dll 兜底）
+# 移动端 NDK 加载动态库受沙盒限制，暂不支持，待 T-M012 决策
+pdfium-render = "0.8"
+# rmcp 桌面端额外能力：spawn 外部 MCP server 子进程（移动端 fork/spawn 受限）
+rmcp = { version = "1.5", features = ["transport-child-process"] }
+# rust-s3 S3 协议 backend：rust-s3 0.34 强引入 openssl，移动端编译失败
+rust-s3 = { version = "0.34", default-features = false, features = ["tokio-rustls-tls"] }
+# Excel / ODS 解析（calamine 在 Android target 编译失败，先桌面端独享；
+# 移动端按 T-M013 改单文件导入流程后再决策）
+calamine = "0.28"
+# T-020 笔记导出为 Word（docx-rs 在 Android target 编译失败，先桌面端独享；
+# 移动端按 T-M013 后再决策）
+docx-rs = "0.4"
+
+# ─── 编译优化 ────────────────────────────────────
+
+[profile.dev]
+opt-level = 0
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+# 注意：不能设置 panic = "abort"，否则 html2md 的子依赖会因 panic 策略冲突编译失败

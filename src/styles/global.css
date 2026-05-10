@@ -1,0 +1,1695 @@
+@import "tailwindcss";
+@import "./themes.css";
+/* T-011: KaTeX 公式渲染 — Mathematics 扩展 + 行内 $...$ / 块级 $$...$$ */
+@import "katex/dist/katex.min.css";
+
+/* ═══════════════════════════════════════════════════════════
+   Safari 15.x / macOS 12 Monterey WKWebView fallback
+   ═══════════════════════════════════════════════════════════
+   Tailwind v4 输出的 --color-* 用 oklch()，Safari 15 不识别会让整条声明
+   丢弃 → 变量为空 → bg-blue-500/text-gray-500 等 utility 全部失效 → 白屏。
+   现代浏览器（Safari 16.4+ / Chrome 111+ / Firefox 113+）@supports not
+   求值 false，整块跳过，零运行时开销。
+   覆盖范围：项目实际用到的色板（slate/gray/blue/violet/emerald/sky/amber）
+   及 antd token 应急色（极端情况下 ConfigProvider 注入晚于首屏渲染）。
+   themes.css 的 --kb-* 主题色板用 hex/rgba，不依赖 oklch，无需兜底。
+   ═══════════════════════════════════════════════════════════ */
+@supports not (color: oklch(0% 0 0)) {
+  :root {
+    --color-white: #ffffff;
+    --color-black: #000000;
+    /* gray —— 项目大量用 text-gray-400/500、bg-gray-50/100、border-gray-100 */
+    --color-gray-50: #f9fafb;
+    --color-gray-100: #f3f4f6;
+    --color-gray-200: #e5e7eb;
+    --color-gray-300: #d1d5db;
+    --color-gray-400: #9ca3af;
+    --color-gray-500: #6b7280;
+    --color-gray-600: #4b5563;
+    --color-gray-700: #374151;
+    --color-gray-800: #1f2937;
+    --color-gray-900: #111827;
+    /* slate —— Home/Dashboard 用 text-slate-400/500 */
+    --color-slate-300: #cbd5e1;
+    --color-slate-400: #94a3b8;
+    --color-slate-500: #64748b;
+    /* blue/sky —— 链接、强调、提示色 */
+    --color-blue-400: #60a5fa;
+    --color-blue-500: #3b82f6;
+    --color-blue-600: #2563eb;
+    --color-sky-500: #0ea5e9;
+    /* 语义色板 —— ImportPreviewModal 等 */
+    --color-violet-500: #8b5cf6;
+    --color-emerald-500: #10b981;
+    --color-amber-500: #f59e0b;
+    --color-red-500: #ef4444;
+    --color-green-500: #22c55e;
+  }
+
+  /* 项目内自定义 class 大量用 color-mix(in srgb, ...) 做半透明叠加，
+     Safari 15 不支持 color-mix → 整条 background/border 声明丢弃。
+     高频场景（编辑器代码块/视频块/工具栏）这里给静态 RGBA 兜底，
+     不影响现代浏览器（@supports not 已守门）。 */
+  .code-block-enhanced,
+  .tiptap-video-block {
+    background: rgba(0, 0, 0, 0.035);
+    border-color: rgba(0, 0, 0, 0.08);
+  }
+  .code-block-toolbar,
+  .tiptap-video-toolbar {
+    background: rgba(0, 0, 0, 0.02);
+    border-bottom-color: rgba(0, 0, 0, 0.06);
+  }
+  [data-theme-category="dark"] .code-block-enhanced,
+  [data-theme-category="dark"] .tiptap-video-block {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.12);
+  }
+  [data-theme-category="dark"] .code-block-toolbar,
+  [data-theme-category="dark"] .tiptap-video-toolbar {
+    background: rgba(255, 255, 255, 0.05);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+  /* Callout 4 类（color-mix 失效时退化为单色淡底） */
+  .tiptap-callout[data-callout="info"]    { background: rgba(22, 119, 255, 0.08); }
+  .tiptap-callout[data-callout="tip"]     { background: rgba(82, 196, 26, 0.10); }
+  .tiptap-callout[data-callout="warning"] { background: rgba(250, 173, 20, 0.10); }
+  .tiptap-callout[data-callout="danger"]  { background: rgba(255, 77, 79, 0.10); }
+  /* 视频时间戳 chip */
+  .video-ts-chip {
+    background: rgba(22, 119, 255, 0.12);
+    border-color: rgba(22, 119, 255, 0.30);
+  }
+  .video-ts-chip:hover {
+    background: rgba(22, 119, 255, 0.22);
+  }
+  /* Emoji 选择器激活态 */
+  .emoji-cat-btn.active {
+    background: rgba(22, 119, 255, 0.12);
+  }
+}
+
+:root {
+  --sidebar-width: 220px;
+  --header-height: 48px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/**
+ * SidePanel 出现动画。
+ * 只动 opacity + transform，不触发 reflow，避免主区跟着重新布局造成的卡顿感。
+ * 用 cubic-bezier 收尾平缓，比线性更自然。
+ */
+@keyframes sidePanelEnter {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.side-panel-enter {
+  animation: sidePanelEnter 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* 提前告诉浏览器走 compositor，减少首帧抖动 */
+  will-change: opacity, transform;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* 暗色模式滚动条 — 见 themes.css */
+
+/* ─── Lucide 图标垂直居中 ──────────────────────── */
+
+.lucide {
+  vertical-align: middle;
+}
+
+/* Ant Design Segmented 图标居中 */
+.ant-segmented-item-label {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── 暗色模式卡片增强 — 见 themes.css ────────── */
+
+/* ─── 侧边栏 Menu 背景继承 ─────────────────────── */
+
+.ant-layout-sider .ant-menu {
+  background: transparent !important;
+}
+
+/* 暗色模式 Menu — 见 themes.css */
+
+/* ─── 侧边栏文件夹树：整行点击区 ─────────────── */
+
+.sidebar-folder-tree .ant-tree-node-content-wrapper {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  padding: 0 4px !important;
+}
+.sidebar-folder-tree .ant-tree-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* 节点紧贴左缘 + 顶部一点空隙避免选中态贴住"文件夹"小节标题 */
+.sidebar-folder-tree .ant-tree-list-holder-inner {
+  padding-left: 2px;
+  padding-top: 6px;
+}
+
+/* 每级缩进 antd 默认 24px → 压到 10px，4-5 级嵌套都能装下 */
+.sidebar-folder-tree .ant-tree-indent-unit {
+  width: 10px;
+}
+
+/* switcher（展开/收起箭头）槽位 antd 默认 24×24，过宽 + 黑实心三角太显眼。
+   缩到 16×22 + 居中。叶节点的 noop 槽位同步缩窄保持对齐。 */
+.sidebar-folder-tree .ant-tree-switcher {
+  width: 16px;
+  height: 22px;
+  line-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--ant-color-text-tertiary, #8c8c8c);
+  background: transparent !important;
+  border-radius: 4px;
+  position: relative;
+}
+.sidebar-folder-tree .ant-tree-switcher-noop {
+  width: 16px;
+}
+.sidebar-folder-tree .ant-tree-switcher .anticon {
+  font-size: 11px;
+}
+/* 清掉 antd 默认在 switcher 上的指引线伪元素（连接父子节点的那条灰线），
+   它会以 ::before/::after 的形式画出小圆/竖线，跟 lucide 自定义箭头视觉错位。 */
+.sidebar-folder-tree .ant-tree-switcher::before,
+.sidebar-folder-tree .ant-tree-switcher::after {
+  display: none !important;
+}
+.sidebar-folder-tree .ant-tree-switcher .ant-tree-switcher-leaf-line {
+  display: none !important;
+}
+/* 自定义 hover：覆盖 16×22 范围而非默认的 24×24，与 chevron 视觉对齐 */
+.sidebar-folder-tree .ant-tree-switcher:hover {
+  background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.04)) !important;
+}
+
+/* 行整体压紧（默认 28-32px 行高在密集嵌套时太松） */
+.sidebar-folder-tree .ant-tree-treenode {
+  padding-top: 1px;
+  padding-bottom: 1px;
+  width: 100%;
+  align-items: center;
+}
+
+/* ─── Sider 拖拽调宽期间的性能优化 ─────────────
+ * 拖动时 Sider 宽度每帧变化，默认会触发 Sider 内 Sidebar 整棵子树 reflow。
+ * 用 CSS contain 把 layout/paint 隔离在 Sider 内，will-change: width 告诉
+ * 浏览器提前为宽度变化准备合成层，避免每帧重新布局外层 Layout。
+ * cursor / user-select 由 JS 在 document.body 上加 col-resize；这里也兜底
+ * 禁掉 transition 免得将来谁给 Sider 加 transition 回归性能。 */
+.sidebar-resizing .ant-layout-sider {
+  contain: layout paint;
+  will-change: width;
+  transition: none !important;
+}
+
+/* ─── 笔记编辑器页面布局（Typora 风格） ────────── */
+
+/* editor-page 用 absolute 占满整个 Content（含 padding），需父级 position:relative。
+   两个绕不开的约束同时满足：
+   1) Content 是 overflow:auto 的滚动容器 — height:calc(100%+48px) 这种"撑出去"的
+      hack 会让 Content 永远溢出 48px、显示淡紫隐形滚动条，盖住 .editor-body 的滚动条。
+   2) light-glass 主题 body 是紫色渐变 + Content 透明 — 任何让 editor-page 不覆盖
+      Content padding 区域（含上下 24px）的写法，都会让紫色横条从 padding 透出。
+   absolute + inset:0 不参与父 layout（不触发 Content 溢出），且 containing block 是
+   父 padding-box，自然把 Content 全部 padding 都覆盖掉。 */
+.ant-layout-content {
+  position: relative;
+}
+.editor-page {
+  display: flex;
+  flex-direction: column;
+  position: absolute;
+  inset: 0;
+}
+
+.editor-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* 左右 32px：editor-page 的 margin:-24px 把 topbar 横向扩到 Content padding 外，
+     这里需多给 24px 抵消，再留 8px 让"返回 / 删除"按钮不贴边 */
+  padding: 8px 32px;
+  border-bottom: 1px solid var(--ant-color-border, #d9d9d9);
+  background: var(--ant-color-bg-container, #fff);
+  flex-shrink: 0;
+}
+
+.editor-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--ant-color-bg-container, #fff);
+  /* 大纲打开时变 2 列：主内容 + 右侧 sticky 大纲；关闭时退回单列 */
+  display: block;
+}
+.editor-body[data-outline="on"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 200px;
+  align-items: start;
+}
+
+
+.editor-content-area {
+  /* 底部 10vh 空白：兼顾大纲跳转的 scrollIntoView 余量与视觉紧凑感；
+     原值 40vh / 20vh 离反向链接 / 字数统计区过远，最终降到 10vh。 */
+  padding: 24px 48px 10vh;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* Mermaid 预览块：右上角"全屏"按钮，hover preview 时显形 */
+.mermaid-preview .mermaid-preview__fullscreen-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--ant-color-text, #000) 10%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--ant-color-bg-container, #fff) 92%, transparent);
+  color: var(--ant-color-text-secondary, #666);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.18s, transform 0.18s, background 0.12s;
+  z-index: 2;
+}
+.mermaid-preview:hover .mermaid-preview__fullscreen-btn {
+  opacity: 1;
+  transform: translateY(0);
+}
+.mermaid-preview__fullscreen-btn:hover {
+  background: color-mix(in srgb, var(--ant-color-text, #000) 5%, var(--ant-color-bg-container, #fff));
+  color: var(--ant-color-text);
+}
+
+/* 图片 + 图注（FigureExtension 渲染的 <figure> 块） */
+.tiptap-figure {
+  margin: 12px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.tiptap-figure img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+.tiptap-figure figcaption {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ant-color-text-tertiary, #8c8c8c);
+  text-align: center;
+  font-style: italic;
+  line-height: 1.5;
+  max-width: 90%;
+}
+
+/* 右侧大纲面板：sticky 在滚动容器内跟随滚动 */
+.editor-outline-aside {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+  padding: 24px 12px 24px 0;
+  /* 关键：让标题列表自身可滚（避免大纲过长撑开视口） */
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+/* 大纲点击 → scrollIntoView 兜底路径用：留出 sticky 工具栏 + 8px 呼吸的避让空间。
+   优先逻辑（EditorOutline.handleJump）会动态查询工具栏实际高度，这里只是兜底。 */
+.editor-content-area .tiptap h1,
+.editor-content-area .tiptap h2,
+.editor-content-area .tiptap h3,
+.editor-content-area .tiptap h4,
+.editor-content-area .tiptap h5,
+.editor-content-area .tiptap h6 {
+  scroll-margin-top: 88px;
+}
+
+.editor-outline {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ant-color-text-secondary, #555);
+  border-left: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  padding-left: 10px;
+}
+.editor-outline__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  user-select: none;
+}
+.editor-outline__hint {
+  font-size: 11px;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+.editor-outline__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.editor-outline__item {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 3px 6px 3px 8px;
+  margin: 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.editor-outline__item:hover {
+  background: color-mix(in srgb, var(--ant-color-text, #000) 5%, transparent);
+}
+
+/* 大纲隐藏小眼睛：常态隐形，hover 整个大纲面板时淡入。
+   故意做的克制 —— 大纲是阅读辅助控件，不该常驻按钮抢视觉。 */
+.editor-outline__hide-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.12s ease, color 0.12s ease;
+}
+.editor-outline-aside:hover .editor-outline__hide-btn {
+  opacity: 1;
+}
+.editor-outline__hide-btn:hover {
+  background: color-mix(in srgb, var(--ant-color-text, #000) 8%, transparent);
+  color: var(--ant-color-text) !important;
+}
+
+/* 大纲左侧拖拽分隔条：6px 宽，col-resize；只靠光标提示，不加 hover 背景色 */
+.editor-outline-splitter {
+  align-self: stretch;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.editor-title .ant-input {
+  font-size: 28px !important;
+  font-weight: 700 !important;
+  padding: 12px 0 !important;
+  line-height: 1.4 !important;
+}
+
+
+.editor-meta {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  margin-bottom: 16px;
+}
+
+/* ─── Tiptap 编辑器样式 ─────────────────────────── */
+
+.tiptap-wrapper {
+  border: 1px solid var(--ant-color-border, #d9d9d9);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* 编辑器页面内的 tiptap 无边框样式 + 撑满剩余高度 */
+.editor-content-area .tiptap-wrapper {
+  border: none;
+  border-radius: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  /* 解除 .tiptap-wrapper 默认的 overflow:hidden，
+     否则会截断 sticky 参考链，导致工具栏在长文档里无法吸顶 */
+  overflow: visible;
+}
+
+.editor-content-area .tiptap-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-content-area .tiptap-content .tiptap {
+  flex: 1;
+}
+
+.tiptap-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  column-gap: 1px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  /* 与正文同色 + 轻磨砂，消除灰色底的突兀感 */
+  background: color-mix(in srgb, var(--ant-color-bg-container, #fff) 85%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* 编辑器页面内的 toolbar 全宽吸顶 */
+.editor-content-area .tiptap-toolbar {
+  margin: 0 -48px;
+  padding: 6px 48px;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+}
+
+/* 工具栏按钮：圆润、无边框、轻量
+ * display:inline-flex + align-items:center 强制内容垂直居中 ——
+ * 修复带小三角的 dropdown 按钮（callout / 代码块 / 表格 / 段落 / 字号 / 行高）
+ * 因 lucide SVG 基线对齐造成的偏上/偏下问题。
+ */
+.tiptap-toolbar .ant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  line-height: 1;
+  border: none !important;
+  border-radius: 6px;
+  background: transparent !important;
+  color: var(--ant-color-text-secondary, #666);
+  box-shadow: none !important;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* icon prop 模式（callout / 代码块 / 表格）的 wrapper 也对齐 */
+.tiptap-toolbar .ant-btn .ant-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.tiptap-toolbar .ant-btn:hover:not(:disabled) {
+  background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.04)) !important;
+  color: var(--ant-color-text, #222) !important;
+}
+
+.tiptap-toolbar .ant-btn:disabled {
+  opacity: 0.35;
+}
+
+/* 活动态：主色淡底 */
+.toolbar-btn-active {
+  color: var(--ant-color-primary, #1677ff) !important;
+  background: var(--ant-color-primary-bg, #e6f4ff) !important;
+}
+
+.tiptap-toolbar .toolbar-btn-active:hover:not(:disabled) {
+  background: var(--ant-color-primary-bg-hover, #bae0ff) !important;
+  color: var(--ant-color-primary, #1677ff) !important;
+}
+
+/* 暗色模式工具栏 — 见 themes.css */
+
+.tiptap-content .tiptap {
+  outline: none;
+  padding: 20px 0;
+  min-height: 400px;
+  /* 字体/字号/行距由 store 驱动写入 :root CSS 变量；未设置时用默认 */
+  font-family: var(--editor-font-family, inherit);
+  font-size: var(--editor-font-size, 15px);
+  line-height: var(--editor-line-height, 1.8);
+}
+
+/* 非编辑器页面的 tiptap 保持内边距 */
+:not(.editor-content-area) > .tiptap-wrapper .tiptap-content .tiptap {
+  padding: 16px 20px;
+}
+
+/* 标题（H1–H6，Notion 风层级 — 更明显的视觉对比） */
+.tiptap h1 { font-size: 1.875em; font-weight: 700; margin: 0.7em 0 0.4em; line-height: 1.3; }
+.tiptap h2 { font-size: 1.5em;   font-weight: 700; margin: 0.6em 0 0.3em; line-height: 1.3; }
+.tiptap h3 { font-size: 1.25em;  font-weight: 600; margin: 0.5em 0 0.25em; line-height: 1.35; }
+.tiptap h4 { font-size: 1.125em; font-weight: 600; margin: 0.45em 0 0.2em; line-height: 1.4; color: var(--ant-color-text, #222); }
+.tiptap h5 { font-size: 1em;     font-weight: 600; margin: 0.4em 0 0.2em; line-height: 1.4; color: var(--ant-color-text-secondary, #555); }
+.tiptap h6 { font-size: 0.92em;  font-weight: 600; margin: 0.35em 0 0.18em; line-height: 1.4; color: var(--ant-color-text-tertiary, #888); text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* 段落 */
+.tiptap p { margin: 0.3em 0; }
+
+/* 列表 */
+.tiptap ul { list-style: disc; padding-left: 1.5em; }
+.tiptap ol { list-style: decimal; padding-left: 1.5em; }
+.tiptap li { margin: 0.15em 0; }
+.tiptap li p { margin: 0; }
+
+/* 任务列表 */
+.tiptap ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+.tiptap ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.tiptap ul[data-type="taskList"] li > label {
+  margin-top: 3px;
+}
+.tiptap ul[data-type="taskList"] li > div {
+  flex: 1;
+}
+.tiptap ul[data-type="taskList"] li[data-checked="true"] > div {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+/* 引用 */
+.tiptap blockquote {
+  border-left: 3px solid var(--ant-color-primary, #1677ff);
+  padding-left: 1em;
+  margin: 0.5em 0;
+  color: var(--ant-color-text-secondary, #666);
+}
+
+/* 代码块：透明磨砂底 + 细边线，消除灰色突兀感 */
+.tiptap pre {
+  background: color-mix(in srgb, var(--ant-color-text, #000) 3.5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ant-color-text, #000) 8%, transparent);
+  border-radius: 8px;
+  padding: 14px 18px;
+  margin: 0.6em 0;
+  overflow-x: auto;
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+  font-size: 0.9em;
+  line-height: 1.6;
+}
+.tiptap pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* ─── T-010 代码块语法高亮（lowlight 产出 .hljs-* token） ───
+   亮色默认；深色主题在下方做覆盖。
+   颜色挑选原则：
+   - 与正文 `--ant-color-text` 保持适当对比度（>= 4.5:1 in 浅色背景）
+   - 不用纯黑 / 纯白，留呼吸感；语义上：紫=控制流、蓝=类型/函数、青=变量、绿=字符串、橙=数字、灰=注释 */
+.tiptap pre code .hljs-keyword,
+.tiptap pre code .hljs-selector-tag,
+.tiptap pre code .hljs-section,
+.ai-markdown pre code .hljs-keyword,
+.ai-markdown pre code .hljs-selector-tag,
+.ai-markdown pre code .hljs-section { color: #8250df; font-weight: 600; }
+.tiptap pre code .hljs-built_in,
+.tiptap pre code .hljs-type,
+.tiptap pre code .hljs-class .hljs-title,
+.tiptap pre code .hljs-title.class_,
+.tiptap pre code .hljs-title.function_,
+.tiptap pre code .hljs-title,
+.ai-markdown pre code .hljs-built_in,
+.ai-markdown pre code .hljs-type,
+.ai-markdown pre code .hljs-title { color: #0550ae; }
+.tiptap pre code .hljs-string,
+.tiptap pre code .hljs-regexp,
+.tiptap pre code .hljs-attr,
+.tiptap pre code .hljs-attribute,
+.ai-markdown pre code .hljs-string,
+.ai-markdown pre code .hljs-regexp,
+.ai-markdown pre code .hljs-attr,
+.ai-markdown pre code .hljs-attribute { color: #0a7d3b; }
+.tiptap pre code .hljs-number,
+.tiptap pre code .hljs-literal,
+.tiptap pre code .hljs-meta,
+.tiptap pre code .hljs-link,
+.ai-markdown pre code .hljs-number,
+.ai-markdown pre code .hljs-literal,
+.ai-markdown pre code .hljs-meta,
+.ai-markdown pre code .hljs-link { color: #b45309; }
+.tiptap pre code .hljs-variable,
+.tiptap pre code .hljs-template-variable,
+.tiptap pre code .hljs-name,
+.tiptap pre code .hljs-symbol,
+.tiptap pre code .hljs-bullet,
+.tiptap pre code .hljs-tag,
+.tiptap pre code .hljs-selector-class,
+.tiptap pre code .hljs-selector-id,
+.ai-markdown pre code .hljs-variable,
+.ai-markdown pre code .hljs-template-variable,
+.ai-markdown pre code .hljs-name,
+.ai-markdown pre code .hljs-symbol,
+.ai-markdown pre code .hljs-tag,
+.ai-markdown pre code .hljs-selector-class,
+.ai-markdown pre code .hljs-selector-id { color: #116329; }
+.tiptap pre code .hljs-comment,
+.tiptap pre code .hljs-quote,
+.tiptap pre code .hljs-doctag,
+.ai-markdown pre code .hljs-comment,
+.ai-markdown pre code .hljs-quote,
+.ai-markdown pre code .hljs-doctag { color: #6e7781; font-style: italic; }
+.tiptap pre code .hljs-emphasis,
+.ai-markdown pre code .hljs-emphasis { font-style: italic; }
+.tiptap pre code .hljs-strong,
+.ai-markdown pre code .hljs-strong { font-weight: bold; }
+.tiptap pre code .hljs-deletion,
+.ai-markdown pre code .hljs-deletion {
+  color: #82071e;
+  background-color: rgba(255, 129, 130, 0.18);
+}
+.tiptap pre code .hljs-addition,
+.ai-markdown pre code .hljs-addition {
+  color: #116329;
+  background-color: rgba(46, 160, 67, 0.18);
+}
+
+/* 深色主题下的高对比覆盖（覆盖 dark-mocha / dark-starry） */
+[data-theme="dark-mocha"] .tiptap pre code .hljs-keyword,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-selector-tag,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-section,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-keyword,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-selector-tag,
+[data-theme="dark-starry"] .tiptap pre code .hljs-keyword,
+[data-theme="dark-starry"] .tiptap pre code .hljs-selector-tag,
+[data-theme="dark-starry"] .tiptap pre code .hljs-section,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-keyword,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-selector-tag { color: #d2a8ff; }
+[data-theme="dark-mocha"] .tiptap pre code .hljs-built_in,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-type,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-title,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-built_in,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-type,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-title,
+[data-theme="dark-starry"] .tiptap pre code .hljs-built_in,
+[data-theme="dark-starry"] .tiptap pre code .hljs-type,
+[data-theme="dark-starry"] .tiptap pre code .hljs-title,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-built_in,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-type,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-title { color: #79c0ff; }
+[data-theme="dark-mocha"] .tiptap pre code .hljs-string,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-regexp,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-attr,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-attribute,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-string,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-regexp,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-attr,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-attribute,
+[data-theme="dark-starry"] .tiptap pre code .hljs-string,
+[data-theme="dark-starry"] .tiptap pre code .hljs-regexp,
+[data-theme="dark-starry"] .tiptap pre code .hljs-attr,
+[data-theme="dark-starry"] .tiptap pre code .hljs-attribute,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-string,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-regexp,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-attr,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-attribute { color: #a5d6ff; }
+[data-theme="dark-mocha"] .tiptap pre code .hljs-number,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-literal,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-meta,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-number,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-literal,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-meta,
+[data-theme="dark-starry"] .tiptap pre code .hljs-number,
+[data-theme="dark-starry"] .tiptap pre code .hljs-literal,
+[data-theme="dark-starry"] .tiptap pre code .hljs-meta,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-number,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-literal,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-meta { color: #ffa657; }
+[data-theme="dark-mocha"] .tiptap pre code .hljs-variable,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-template-variable,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-name,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-symbol,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-tag,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-variable,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-template-variable,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-name,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-symbol,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-tag,
+[data-theme="dark-starry"] .tiptap pre code .hljs-variable,
+[data-theme="dark-starry"] .tiptap pre code .hljs-template-variable,
+[data-theme="dark-starry"] .tiptap pre code .hljs-name,
+[data-theme="dark-starry"] .tiptap pre code .hljs-symbol,
+[data-theme="dark-starry"] .tiptap pre code .hljs-tag,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-variable,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-template-variable,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-name,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-symbol,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-tag { color: #7ee787; }
+[data-theme="dark-mocha"] .tiptap pre code .hljs-comment,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-quote,
+[data-theme="dark-mocha"] .tiptap pre code .hljs-doctag,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-comment,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-quote,
+[data-theme="dark-mocha"] .ai-markdown pre code .hljs-doctag,
+[data-theme="dark-starry"] .tiptap pre code .hljs-comment,
+[data-theme="dark-starry"] .tiptap pre code .hljs-quote,
+[data-theme="dark-starry"] .tiptap pre code .hljs-doctag,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-comment,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-quote,
+[data-theme="dark-starry"] .ai-markdown pre code .hljs-doctag { color: #8b949e; }
+
+/* 行内代码：低对比淡色，和正文融合 */
+.tiptap code {
+  background: color-mix(in srgb, var(--ant-color-text, #000) 6%, transparent);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.88em;
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+}
+
+/* 高亮 */
+.tiptap mark {
+  background: #fff3bf;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+/* 暗色模式 mark — 见 themes.css */
+
+/* 链接 */
+.tiptap-link {
+  color: var(--ant-color-primary, #1677ff);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* 内联 wiki 链接 [[标题]] — Ctrl/Cmd + 点击跳转
+   fallback：同 table th，避免 macOS Safari/WKWebView 老版本 color-mix 异常时
+   回落到 user-agent 深色背景把蓝字盖掉。RGBA 用 antd 默认主色 #1677ff 透明值 */
+.tiptap .wiki-link {
+  color: var(--ant-color-primary, #1677ff);
+  background: rgba(22, 119, 255, 0.08);
+  background: color-mix(in srgb, var(--ant-color-primary, #1677ff) 8%, transparent);
+  border-radius: 3px;
+  padding: 0 2px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.tiptap .wiki-link:hover {
+  background: rgba(22, 119, 255, 0.18);
+  background: color-mix(in srgb, var(--ant-color-primary, #1677ff) 18%, transparent);
+  text-decoration: underline;
+}
+
+/* 笔记 Tab 栏的滚动容器 — 隐藏 webkit 滚动条 */
+.tabbar-scroller::-webkit-scrollbar {
+  display: none;
+}
+
+/* Tippy.js wiki-suggestion 主题 — 去掉默认黑色背景/边距 */
+.tippy-box[data-theme~="wiki-suggestion"] {
+  background: transparent;
+  color: inherit;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+}
+.tippy-box[data-theme~="wiki-suggestion"] > .tippy-content {
+  background: transparent;
+  padding: 0;
+}
+.tippy-box[data-theme~="wiki-suggestion"] > .tippy-arrow {
+  display: none;
+}
+
+/* 分割线 */
+.tiptap hr {
+  border: none;
+  border-top: 1px solid var(--ant-color-border, #d9d9d9);
+  margin: 1em 0;
+}
+
+/* 图片（支持拖拽调整尺寸） */
+.tiptap img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 0.5em 0;
+}
+
+/* 图片 resize 暗色 — 见 themes.css */
+
+/* 表格 */
+.tiptap table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+  table-layout: fixed;
+  overflow: hidden;
+}
+
+.tiptap table td,
+.tiptap table th {
+  border: 1px solid var(--ant-color-border, #d9d9d9);
+  padding: 6px 10px;
+  vertical-align: top;
+  position: relative;
+  min-width: 60px;
+}
+
+.tiptap table th {
+  /* 与 .code-block-toolbar 同源（亮色 2% 文本叠加），统一表头/代码块工具栏视觉调性。
+     fallback：macOS Safari/WKWebView 早期版本对 color-mix 透明叠加渲染异常时会
+     回落到 user-agent 默认深色 ButtonFace 把字盖掉，先给一个明确的浅灰 RGBA */
+  background: rgba(0, 0, 0, 0.02);
+  background: color-mix(in srgb, var(--ant-color-text, #000) 2%, transparent);
+  color: var(--ant-color-text, #000);
+  font-weight: 600;
+}
+.tiptap table td {
+  color: var(--ant-color-text, #000);
+}
+
+/* 暗色模式表格 — 见 themes.css */
+
+/* 表格选中单元格高亮 */
+.tiptap table td.selectedCell,
+.tiptap table th.selectedCell {
+  background: var(--ant-color-primary-bg, #e6f4ff);
+}
+
+/* 暗色模式选中 — 见 themes.css */
+
+/* 表格列拖拽调整宽度手柄 */
+.tiptap .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  background-color: var(--ant-color-primary, #1677ff);
+  pointer-events: none;
+}
+
+.tiptap.resize-cursor {
+  cursor: col-resize;
+}
+
+/* 占位符 */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--ant-color-text-quaternary, #bbb);
+  pointer-events: none;
+  height: 0;
+}
+
+/* ─── AI 消息 Markdown 样式 ──────────────────────── */
+
+.ai-markdown h1 { font-size: 1.3em; font-weight: 700; margin: 0.5em 0 0.3em; }
+.ai-markdown h2 { font-size: 1.15em; font-weight: 600; margin: 0.4em 0 0.2em; }
+.ai-markdown h3 { font-size: 1.05em; font-weight: 600; margin: 0.3em 0 0.15em; }
+.ai-markdown h4 { font-size: 1em; font-weight: 600; margin: 0.2em 0 0.1em; }
+.ai-markdown p { margin: 0.3em 0; }
+.ai-markdown ul { list-style: disc; padding-left: 1.5em; margin: 0.3em 0; }
+.ai-markdown ol { list-style: decimal; padding-left: 1.5em; margin: 0.3em 0; }
+.ai-markdown li { margin: 0.1em 0; }
+.ai-markdown li > p { margin: 0; }
+.ai-markdown blockquote {
+  border-left: 3px solid var(--ant-color-primary, #1677ff);
+  padding-left: 0.8em;
+  margin: 0.4em 0;
+  color: var(--ant-color-text-secondary, #666);
+}
+.ai-markdown pre {
+  background: color-mix(in srgb, var(--ant-color-text, #000) 3.5%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ant-color-text, #000) 8%, transparent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 0.4em 0;
+  overflow-x: auto;
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+  font-size: 0.85em;
+  line-height: 1.55;
+}
+.ai-markdown pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  font-size: inherit;
+}
+.ai-markdown code {
+  background: color-mix(in srgb, var(--ant-color-text, #000) 6%, transparent);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+}
+.ai-markdown hr {
+  border: none;
+  border-top: 1px solid var(--ant-color-border, #d9d9d9);
+  margin: 0.5em 0;
+}
+.ai-markdown strong { font-weight: 600; }
+.ai-markdown a { color: var(--ant-color-primary, #1677ff); }
+.ai-markdown > *:first-child { margin-top: 0; }
+.ai-markdown > *:last-child { margin-bottom: 0; }
+
+/* ─── 笔记列表视图：去掉 Table 行分割线 ───────────────
+   把表格行做成"无横线纯白卡片"，和分页条共享连续白底。
+   只在 .notes-list-flat 下生效，避免影响其他页面的 Table。 */
+.notes-list-flat .ant-table-tbody > tr > td {
+  border-bottom: 0 !important;
+}
+
+/* 设置页：左侧锚点导航 + 右侧内容区 两栏布局。
+   左侧 sticky 跟随主区滚动；右侧内容区铺到接近主区域宽度，
+   两侧仅留 12px 内边距避免贴边。整体不再硬限 max-width，
+   随主内容区自适应（外层 AppLayout 已限 viewport）。 */
+.anchor-page-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 12px;
+}
+.anchor-page-nav {
+  width: 150px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  font-size: 13px;
+}
+.anchor-page-nav ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.anchor-page-nav li {
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--ant-color-text-secondary, rgba(0, 0, 0, 0.65));
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.anchor-page-nav li:hover {
+  background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.04));
+}
+.anchor-page-nav li[data-active] {
+  background: var(--ant-color-fill-secondary, rgba(0, 0, 0, 0.06));
+  color: var(--ant-color-primary, #1677ff);
+  font-weight: 500;
+}
+.anchor-page-content {
+  flex: 1;
+  min-width: 0;
+  /* 不再硬限 672：让内容跟着主区域宽度自然铺开，超宽屏走外层 1280 兜底 */
+}
+/* 视口窄时降级：导航折叠成水平横滚条 */
+@media (max-width: 720px) {
+  .anchor-page-layout {
+    flex-direction: column;
+  }
+  .anchor-page-nav {
+    width: 100%;
+    position: static;
+    max-height: none;
+  }
+  .anchor-page-nav ul {
+    display: flex;
+    overflow-x: auto;
+    gap: 4px;
+  }
+  .anchor-page-content {
+    max-width: none;
+  }
+}
+
+/* AI 模型添加/编辑弹窗：表单字段较多，紧凑化所有 Form.Item 占用空间。
+   目标是在主流屏幕（13" 1366×768 及以上）下不出现滚动条。
+   配合 Modal 的 maxHeight 兜底，超大字段量时仍可滚动。 */
+
+/* 1. extra 提示文字缩小（默认 14px → 11.5px），多条堆叠节省纵向空间 */
+.ai-model-modal .ant-form-item-extra {
+  font-size: 11.5px;
+  line-height: 1.4;
+  margin-top: 1px;
+}
+
+/* 2. 字段间距继续压缩（默认 margin-bottom 24px → 6px） */
+.ai-model-modal .ant-form-item {
+  margin-bottom: 6px;
+}
+
+/* 3. label 区域瘦身（默认 padding 0 0 8px → 0 0 2px；字号 14 → 12.5） */
+.ai-model-modal .ant-form-item-label {
+  padding-bottom: 2px;
+}
+.ai-model-modal .ant-form-item-label > label {
+  font-size: 12.5px;
+  height: auto;
+}
+
+/* 4. 输入控件高度压到 28px（默认 32px）—— input/select/picker 全覆盖 */
+.ai-model-modal .ant-input,
+.ai-model-modal .ant-input-number,
+.ai-model-modal .ant-input-number-input,
+.ai-model-modal .ant-input-affix-wrapper,
+.ai-model-modal .ant-select-single .ant-select-selector,
+.ai-model-modal .ant-select-single.ant-select-show-arrow .ant-select-selection-item,
+.ai-model-modal .ant-select-single.ant-select-show-arrow .ant-select-selection-search-input,
+.ai-model-modal .ant-picker {
+  height: 28px;
+  min-height: 28px;
+}
+.ai-model-modal .ant-select-single .ant-select-selector .ant-select-selection-search-input,
+.ai-model-modal .ant-select-single .ant-select-selector .ant-select-selection-item {
+  line-height: 26px;
+}
+.ai-model-modal .ant-input,
+.ai-model-modal .ant-select-single .ant-select-selection-item {
+  font-size: 13px;
+}
+
+/* 修复：Input.Password / 任何 affix-wrapper 内嵌的 <input> 不应被外层 28px
+   高度规则压住，否则会把 wrapper 的 padding 吃掉，placeholder 被挤到底部。
+   这里明确把内层 input 还原为 auto 高度 + 0 内边距，由外层 wrapper 的
+   padding（默认 4px 11px）控制视觉居中。 */
+.ai-model-modal .ant-input-affix-wrapper > input.ant-input {
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  line-height: 1.5715;
+}
+
+/* 5. Modal body 上下内边距继续压（默认 24px → 12px） */
+.ai-model-modal .ant-modal-body {
+  padding-top: 12px;
+  padding-bottom: 4px;
+}
+
+/* 设置页跳转高亮：从其他页面带锚点跳过来时短暂闪烁定位目标 */
+.settings-target-flash {
+  border-radius: 8px;
+  animation: settings-target-flash 1.6s ease-out;
+}
+@keyframes settings-target-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(22, 119, 255, 0);
+  }
+  25% {
+    box-shadow: 0 0 0 4px rgba(22, 119, 255, 0.35);
+  }
+}
+
+/* ─── 代码块增强（CodeBlockEnhanced）：toolbar + 行号 + 自动换行 ─── */
+
+/* NodeView 外壳：把 toolbar 和 pre 收进同一个圆角容器 */
+.code-block-enhanced {
+  margin: 0.6em 0;
+  border: 1px solid color-mix(in srgb, var(--ant-color-text, #000) 8%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ant-color-text, #000) 3.5%, transparent);
+  overflow: hidden;
+}
+
+/* 顶部 toolbar */
+.code-block-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ant-color-text, #000) 6%, transparent);
+  background: color-mix(in srgb, var(--ant-color-text, #000) 2%, transparent);
+  user-select: none;
+}
+
+.code-block-toolbar-spacer {
+  flex: 1;
+}
+
+.code-block-title {
+  max-width: 240px;
+  font-size: 12px !important;
+  font-weight: 500;
+  color: var(--ant-color-text) !important;
+}
+
+.code-block-lang {
+  min-width: 110px;
+  font-size: 12px !important;
+}
+.code-block-lang .ant-select-selection-item {
+  font-size: 12px !important;
+  color: var(--ant-color-text-secondary) !important;
+}
+
+.code-block-wrap-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+.code-block-wrap-label {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* 代码块内的 pre：去掉外层圆角/边框（外壳已有），保留内边距 */
+.code-block-enhanced pre {
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  margin: 0 !important;
+  padding: 12px 16px !important;
+  position: relative; /* 给 gutter absolute 锚点 */
+}
+
+/* 启用行号时：给 code 左侧留出行号宽度 + 安全间距，避免与 gutter 重叠
+   注意：JSX 里 showLineNumbers=true 时不设 data-line-numbers 属性（默认就是开），
+   只有显式关闭时才设 data-line-numbers="false"。所以选择器用 :not(="false") 兜底。 */
+.code-block-enhanced:not([data-line-numbers="false"]) pre {
+  /* gutter 占 3.5em（含内 padding 和 border），再给 code 12px 起始空隙 */
+  padding-left: calc(3.5em + 12px) !important;
+}
+
+.code-block-line-gutter {
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3.5em;
+  box-sizing: border-box; /* width 含 padding/border，避免外溢挤到代码 */
+  padding-right: 10px;
+  text-align: right;
+  color: var(--ant-color-text-tertiary, #999);
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+  font-size: 0.9em;
+  line-height: 1.6;
+  user-select: none;
+  pointer-events: none;
+  border-right: 1px solid color-mix(in srgb, var(--ant-color-text, #000) 6%, transparent);
+  white-space: pre;
+}
+.code-block-line-gutter > div {
+  /* 跟 code 行高对齐：code 是 font-size:0.9em + line-height:1.6 → 实际 1.44em
+     gutter 自身也是 0.9em 字号 + 1.6 行高，所以 1.6em 跟 code 行高一致 */
+  height: 1.6em;
+}
+
+/* 自动换行模式 */
+.code-block-enhanced[data-wrap="true"] pre {
+  overflow-x: hidden;
+}
+.code-block-enhanced[data-wrap="true"] pre code {
+  white-space: pre-wrap !important;
+  word-break: break-word;
+}
+
+/* 暗色主题：toolbar 背景 + 边框颜色微调（现有 .tiptap pre 颜色已在暗色模式下兼容） */
+[data-theme-category="dark"] .code-block-enhanced {
+  border-color: color-mix(in srgb, var(--ant-color-text, #fff) 12%, transparent);
+}
+[data-theme-category="dark"] .code-block-toolbar {
+  background: color-mix(in srgb, var(--ant-color-text, #fff) 5%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--ant-color-text, #fff) 8%, transparent);
+}
+
+/* ─── 查找替换：命中高亮 ───────────────────────────────────────── */
+.kb-search-match {
+  background-color: color-mix(in srgb, #faad14 35%, transparent);
+  border-radius: 2px;
+}
+.kb-search-active {
+  background-color: color-mix(in srgb, #fa8c16 65%, transparent);
+  outline: 1px solid #fa8c16;
+  outline-offset: 0;
+}
+[data-theme-category="dark"] .kb-search-match {
+  background-color: color-mix(in srgb, #faad14 30%, transparent);
+}
+[data-theme-category="dark"] .kb-search-active {
+  background-color: color-mix(in srgb, #fa8c16 55%, transparent);
+}
+
+/* ─── 视频块（带 toolbar + 高亮动画） ───────────────────────────── */
+.tiptap-video-block {
+  border: 1px solid color-mix(in srgb, var(--ant-color-text, #000) 8%, transparent);
+  border-radius: 6px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ant-color-text, #000) 2%, transparent);
+  margin: 12px 0;
+  transition: box-shadow 0.3s, border-color 0.3s;
+}
+.tiptap-video-block[data-highlight="true"] {
+  border-color: var(--ant-color-primary, #1677ff);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ant-color-primary, #1677ff) 25%, transparent);
+  animation: video-highlight-pulse 1.2s ease-out;
+}
+@keyframes video-highlight-pulse {
+  0%   { box-shadow: 0 0 0 0   color-mix(in srgb, var(--ant-color-primary, #1677ff) 50%, transparent); }
+  60%  { box-shadow: 0 0 0 8px color-mix(in srgb, var(--ant-color-primary, #1677ff) 0%, transparent); }
+  100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ant-color-primary, #1677ff) 25%, transparent); }
+}
+.tiptap-video-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ant-color-text, #000) 6%, transparent);
+  background: color-mix(in srgb, var(--ant-color-text, #000) 3%, transparent);
+  font-size: 12px;
+  user-select: none;
+}
+.tiptap-video-label {
+  font-weight: 500;
+  color: var(--ant-color-text-secondary, #666);
+}
+.tiptap-video-label-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.tiptap-video-toolbar-spacer { flex: 1; }
+.tiptap-video {
+  display: block;
+  width: 100%;
+  max-height: 480px;
+  background: #000;
+}
+
+/* ─── 嵌入网络视频（B站 / YouTube / 腾讯 / 优酷） ─────────────────── */
+.tiptap-embed-video-block {
+  border: 1px solid color-mix(in srgb, var(--ant-color-text, #000) 8%, transparent);
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 0.6em 0;
+}
+.tiptap-embed-video-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--ant-color-text, #000) 3%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--ant-color-text, #000) 6%, transparent);
+  font-size: 12px;
+  user-select: none;
+}
+.tiptap-embed-video-label {
+  font-weight: 500;
+  color: var(--ant-color-text-secondary, #666);
+  white-space: nowrap;
+}
+.tiptap-embed-video-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: transparent;
+  border: none;
+  color: var(--ant-color-primary, #1677ff);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+  max-width: 60%;
+  overflow: hidden;
+}
+.tiptap-embed-video-link:hover { text-decoration: underline; }
+.tiptap-embed-video-link-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tiptap-embed-video-toolbar-spacer { flex: 1; }
+/* 16:9 响应式容器，iframe 撑满 */
+.tiptap-embed-video-frame {
+  position: relative;
+  width: 100%;
+  padding-top: 56.25%;
+  background: #000;
+}
+.tiptap-embed-video-frame > iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.tiptap-embed-video-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 13px;
+  gap: 4px;
+}
+[data-theme-category="dark"] .tiptap-embed-video-block {
+  border-color: color-mix(in srgb, var(--ant-color-text, #fff) 12%, transparent);
+}
+[data-theme-category="dark"] .tiptap-embed-video-toolbar {
+  background: color-mix(in srgb, var(--ant-color-text, #fff) 5%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--ant-color-text, #fff) 8%, transparent);
+}
+
+/* ─── 视频时间戳 chip ──────────────────────────────────────────── */
+.video-ts-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  margin: 0 2px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ant-color-primary, #1677ff) 12%, transparent);
+  color: var(--ant-color-primary, #1677ff);
+  font-size: 0.92em;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid color-mix(in srgb, var(--ant-color-primary, #1677ff) 30%, transparent);
+  white-space: nowrap;
+  transition: background 0.15s, transform 0.05s;
+}
+.video-ts-chip:hover {
+  background: color-mix(in srgb, var(--ant-color-primary, #1677ff) 22%, transparent);
+}
+.video-ts-chip:active { transform: translateY(1px); }
+.video-ts-chip.ProseMirror-selectednode {
+  outline: 2px solid var(--ant-color-primary, #1677ff);
+  outline-offset: 1px;
+}
+.video-ts-chip-broken {
+  background: color-mix(in srgb, var(--ant-color-text, #000) 8%, transparent);
+  color: var(--ant-color-text-quaternary, #999);
+  border-color: color-mix(in srgb, var(--ant-color-text, #000) 15%, transparent);
+  text-decoration: line-through;
+}
+
+[data-theme-category="dark"] .tiptap-video-block {
+  border-color: color-mix(in srgb, var(--ant-color-text, #fff) 12%, transparent);
+}
+[data-theme-category="dark"] .tiptap-video-toolbar {
+  background: color-mix(in srgb, var(--ant-color-text, #fff) 5%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--ant-color-text, #fff) 8%, transparent);
+}
+
+/* ─── Callout / 提示框（4 种类型） ─────────────────────────── */
+.tiptap-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin: 12px 0;
+  border-left: 4px solid var(--callout-accent, #1677ff);
+  border-radius: 6px;
+  background: var(--callout-bg, color-mix(in srgb, #1677ff 6%, transparent));
+}
+.tiptap-callout[data-callout="info"]    { --callout-accent: #1677ff; --callout-bg: color-mix(in srgb, #1677ff 8%, transparent); }
+.tiptap-callout[data-callout="tip"]     { --callout-accent: #52c41a; --callout-bg: color-mix(in srgb, #52c41a 10%, transparent); }
+.tiptap-callout[data-callout="warning"] { --callout-accent: #faad14; --callout-bg: color-mix(in srgb, #faad14 10%, transparent); }
+.tiptap-callout[data-callout="danger"]  { --callout-accent: #ff4d4f; --callout-bg: color-mix(in srgb, #ff4d4f 10%, transparent); }
+
+.tiptap-callout-icon {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin-top: 2px;
+  font-size: 18px;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+}
+.tiptap-callout-icon:hover {
+  filter: brightness(1.1);
+}
+
+.tiptap-callout-body {
+  flex: 1;
+  min-width: 0;
+}
+.tiptap-callout-body > p:first-child { margin-top: 0; }
+.tiptap-callout-body > p:last-child { margin-bottom: 0; }
+
+/* ─── Toggle 折叠块 ─────────────────────────────────────── */
+.tiptap-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 0;
+}
+.tiptap-toggle-arrow {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--ant-color-text-secondary, #666);
+  margin-top: 2px;
+  user-select: none;
+}
+.tiptap-toggle-arrow:hover {
+  background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.04));
+}
+.tiptap-toggle-children {
+  flex: 1;
+  min-width: 0;
+}
+.tiptap-toggle summary {
+  display: block;
+  font-weight: 500;
+  cursor: text;
+  padding: 2px 0;
+  outline: none;
+  list-style: none;
+}
+.tiptap-toggle summary::-webkit-details-marker {
+  display: none;
+}
+.tiptap-toggle [data-toggle-content] {
+  padding-left: 4px;
+  margin-top: 4px;
+  border-left: 2px solid var(--ant-color-border-secondary, #f0f0f0);
+  padding-left: 12px;
+}
+.tiptap-toggle[data-open="false"] [data-toggle-content] {
+  display: none;
+}
+
+/* ─── Emoji 选择器分类条 + 网格 ──────────────────── */
+.emoji-cat-bar {
+  display: flex;
+  gap: 2px;
+  padding: 4px 2px;
+  border-bottom: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  margin-bottom: 4px;
+}
+.emoji-cat-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--ant-color-text-secondary, #666);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+}
+.emoji-cat-btn:hover {
+  background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.05));
+}
+.emoji-cat-btn.active {
+  background: color-mix(in srgb, var(--ant-color-primary, #1677ff) 12%, transparent);
+  color: var(--ant-color-primary, #1677ff);
+  font-weight: 500;
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  padding: 2px;
+}
+.emoji-grid-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 38px;
+  font-size: 22px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+  transition: background 0.1s;
+}
+.emoji-grid-item:hover {
+  background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.06));
+}
+.emoji-grid-item:active {
+  background: var(--ant-color-fill-secondary, rgba(0, 0, 0, 0.1));
+}
+
+/* AI 写作菜单"伪选区"高亮：编辑器失焦后浏览器原生 ::selection 不再显示，
+   靠这条装饰让用户在 Popover / 流式 / 结果区显示期间仍能看到选段范围 */
+.kb-fake-selection {
+  background-color: rgba(59, 130, 246, 0.28);
+  border-radius: 1px;
+}
+[data-theme-category="dark"] .kb-fake-selection {
+  background-color: rgba(96, 165, 250, 0.32);
+}
+
+/* HeadingFold：H1–H3 左侧的折叠 chevron，hover 行出现，已折叠常亮 + 旋转 */
+.kb-heading-fold-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 4px;
+  margin-left: -22px; /* 视觉上挂在标题左侧外，不挤占文字位置 */
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--ant-color-text-quaternary, #bfbfbf);
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, transform 0.12s;
+  border-radius: 4px;
+  vertical-align: middle;
+  user-select: none;
+}
+.tiptap-wrapper h1:hover > .kb-heading-fold-chevron,
+.tiptap-wrapper h2:hover > .kb-heading-fold-chevron,
+.tiptap-wrapper h3:hover > .kb-heading-fold-chevron {
+  opacity: 0.55;
+}
+.kb-heading-fold-chevron:hover {
+  opacity: 1 !important;
+  color: var(--ant-color-text-secondary, #595959);
+  background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.06));
+}
+.kb-heading-fold-chevron.is-folded {
+  opacity: 1;
+  color: var(--ant-color-primary, #1677ff);
+  transform: rotate(-90deg); /* 折叠态箭头朝右，与 Notion/Obsidian 一致 */
+}
+
+/* 折叠态的"管辖范围"内容：直接 display:none 避免占位与误点 */
+.kb-heading-folded {
+  display: none !important;
+}
+
+/* 文件夹下拉树里的"设为默认"图钉按钮：行 hover 才出现，已默认常亮主题色 */
+.kb-folder-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--ant-color-text-quaternary, #bfbfbf);
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background-color 0.12s;
+  border-radius: 4px;
+}
+.kb-folder-tree-row:hover .kb-folder-pin {
+  opacity: 1;
+}
+.kb-folder-pin:hover {
+  background: var(--ant-color-fill-tertiary, rgba(0, 0, 0, 0.06));
+  color: var(--ant-color-text-secondary, #595959);
+}
+.kb-folder-pin.active {
+  opacity: 1;
+  color: var(--ant-color-primary, #1677ff);
+}
+
+/* ─── 批注 mark ──────────────────────────────────────
+ * 视觉：浅黄底高亮 + 下划虚线，鼠标悬停显示原生 tooltip（来自 title 属性）。
+ * 与 highlight mark（纯背景色）区分：批注必须有下划虚线，让用户一眼看出"这是有注释的，不是普通高亮"。
+ */
+.kb-annotation {
+  background: rgba(255, 234, 0, 0.35);
+  border-bottom: 1px dashed rgba(195, 157, 0, 0.85);
+  cursor: help;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+[data-theme="dark"] .kb-annotation,
+.dark .kb-annotation {
+  background: rgba(255, 234, 0, 0.18);
+  border-bottom-color: rgba(253, 230, 75, 0.7);
+}
