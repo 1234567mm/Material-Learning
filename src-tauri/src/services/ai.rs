@@ -975,7 +975,7 @@ impl AiService {
         let refs_json = if ref_ids.is_empty() {
             None
         } else {
-            Some(serde_json::to_string(&ref_ids).unwrap_or_default())
+            Some(serde_json::to_string(&ref_ids).expect("ref_ids should always be serializable"))
         };
         let user_msg =
             db.add_ai_message(conversation_id, "user", user_message, refs_json.as_deref())?;
@@ -1103,6 +1103,15 @@ impl AiService {
             if history[i].role == "user" {
                 slice_start = i;
                 break;
+            }
+        }
+        // 如果窗口内全是 assistant，回退找 start 之前的最后一条 user 消息
+        if slice_start == start && start > 0 {
+            for i in (0..start).rev() {
+                if history[i].role == "user" {
+                    slice_start = i;
+                    break;
+                }
             }
         }
         // 过滤连续相同 role 的消息（保留最后一条），避免 API 报错
