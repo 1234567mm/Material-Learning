@@ -1200,3 +1200,59 @@ export interface CardStats {
   newCards: number;
   total: number;
 }
+
+// ─── Phase 4: Knowledge Chat UI + Learn ──────────────────────────
+
+export interface KnowledgePanel {
+  id: number;
+  name: string;
+  system_prompt: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeSession {
+  id: number;
+  panel_id: number;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+  ended_at: string | null;
+  is_active: boolean;
+}
+
+export interface KnowledgeMessage {
+  id: number;
+  session_id: number;
+  role: "user" | "assistant" | "system";
+  content: string;
+  token_count: number | null;
+  created_at: string;
+}
+
+export interface KnowledgeSummary {
+  id: number;
+  panel_id: number;
+  session_id: number | null;
+  content: string;
+  char_count: number;
+  trigger_type: "manual" | "overflow";
+  created_at: string;
+}
+
+export interface KnowledgeSimilarityHit {
+  chunk_id: number;
+  file_id: number;
+  content: string;
+  score: number;
+}
+
+export interface KnowledgeMemory {
+  id: number;
+  content: string;
+  source_panel_id: number;
+  source_session_id: number | null;
+  quality_score: number;
+  used_count: number;
+  created_at: string;
+}
