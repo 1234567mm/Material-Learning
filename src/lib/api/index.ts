@@ -91,6 +91,12 @@ import type {
   TranscribeRequest,
   TranscribeResult,
   AsrTestResult,
+  KnowledgePanel,
+  KnowledgeSession,
+  KnowledgeMessage,
+  KnowledgeSummary,
+  KnowledgeSimilarityHit,
+  KnowledgeMemory,
 } from "@/types";
 
 /** 系统相关 API */
@@ -889,4 +895,33 @@ export const cardApi = {
       cardId,
       limit: limit ?? null,
     }),
+};
+
+/** Phase 4: 知识库 Chat UI + Learn API */
+export const knowledgeApi = {
+  listPanels: () => invoke<KnowledgePanel[]>("knowledge_list_panels"),
+  createPanel: (name: string, systemPrompt?: string) =>
+    invoke<number>("knowledge_create_panel", { name, systemPrompt }),
+  updatePanel: (id: number, name: string, systemPrompt?: string) =>
+    invoke<void>("knowledge_update_panel", { id, name, systemPrompt }),
+  deletePanel: (id: number) =>
+    invoke<void>("knowledge_delete_panel", { id }),
+  createSession: (panelId: number) =>
+    invoke<KnowledgeSession>("knowledge_create_session", { panelId }),
+  listSessions: (panelId: number) =>
+    invoke<KnowledgeSession[]>("knowledge_list_sessions", { panelId }),
+  sendMessage: (sessionId: number, content: string) =>
+    invoke<KnowledgeMessage>("knowledge_send_message", { sessionId, content }),
+  endSession: (sessionId: number) =>
+    invoke<KnowledgeSummary>("knowledge_end_session", { sessionId }),
+  getMessages: (sessionId: number) =>
+    invoke<KnowledgeMessage[]>("knowledge_get_messages", { sessionId }),
+  searchFiles: (query: string, panelId?: number, limit?: number) =>
+    invoke<[number, string, string][]>("knowledge_search_files", { query, panelId, limit }),
+  similarChunks: (query: string, panelId: number, limit?: number) =>
+    invoke<KnowledgeSimilarityHit[]>("knowledge_similar_chunks", { query, panelId, limit }),
+  listMemories: (limit?: number) =>
+    invoke<KnowledgeMemory[]>("knowledge_list_memories", { limit }),
+  forgetMemory: (id: number) =>
+    invoke<void>("knowledge_forget_memory", { id }),
 };
