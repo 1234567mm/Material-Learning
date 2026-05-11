@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { knowledgeApi } from "@/lib/api";
 import type { KnowledgePanel } from "@/types";
 import { PanelList } from "./PanelList";
 import { ChatPanel } from "./ChatPanel";
