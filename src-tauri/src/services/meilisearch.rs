@@ -239,7 +239,7 @@ const MEILISEARCH_POLL_INTERVAL_SECS: u64 = 1;
         match http_client.get(&health_url).send().await {
             Ok(resp) if resp.status().is_success() => {
                 log::info!("[meilisearch] meilisearch is ready after {:?}", start.elapsed());
-                let mut server = finalize_server(&mut child_opt, base_url, index_name);
+                let server = finalize_server(&mut child_opt, base_url, index_name);
 
                 // Ensure the index exists (idempotent)
                 if let Err(e) = server.client().ensure_index().await {
