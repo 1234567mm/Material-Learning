@@ -695,8 +695,7 @@ pub fn run() {
             // 失败不阻断启动（Option 包装），用户可在设置页重新配置
             let llama = {
                 // 优先解密读取，失败则尝试明文（兼容旧版明文存储）
-                let model_path = ConfigService::get_decrypted_or_raw(&db, "llama_model_path")?
-                    .or_else(|| db.get_config("llama_model_path").ok().flatten().filter(|v| !v.is_empty()));
+                let model_path = ConfigService::get_decrypted_or_raw(&db, "llama_model_path")?;
                 let base_url = db.get_config("llama_base_url")
                     .ok().flatten().unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
                 let model = db.get_config("llama_model")

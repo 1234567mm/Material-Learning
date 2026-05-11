@@ -62,10 +62,17 @@ impl ConfigService {
 
     /// 读取敏感配置（解密优先，失败则尝试明文）
     /// 用于需要同时兼容新旧两种存储格式的场景。
+    /// 最多一次 DB 读取。
     pub fn get_decrypted_or_raw(db: &Database, key: &str) -> Result<Option<String>, AppError> {
-        match Self::get_decrypted(db, key)? {
-            Some(v) => Ok(Some(v)),
-            None => Ok(db.get_config(key)?.filter(|v| !v.is_empty())),
+        let val = db.get_config(key)?.filter(|v| !v.is_empty());
+        match val {
+            Some(enc) => {
+                match crypto::decrypt(&enc) {
+                    Ok(v) => Ok(Some(v)),
+                    Err(_) => Ok(Some(enc)), // 迁移：解密失败说明是旧版明文
+                }
+            }
+            None => Ok(None),
         }
     }
 }
