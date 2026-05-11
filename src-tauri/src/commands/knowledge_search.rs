@@ -32,6 +32,6 @@ pub async fn similar_chunks(
     let query_embedding = llama.embed(&query).await.map_err(|_| "嵌入查询失败，请确认 llama-server 正常运行")?;
 
     let results = knowledge_db.search_similar(&query_embedding, panel_id, limit)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "向量搜索失败".to_string())?;
     Ok(results)
 }

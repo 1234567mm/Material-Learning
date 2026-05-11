@@ -346,15 +346,17 @@ fn strip_html(html: &str) -> String {
 }
 
 /// 对 RAG 上下文内容做转义，防止通过笔记内容进行 prompt injection。
-/// 转义控制字符（\x00-\x1f，保留 \n \t），避免意外 prompt 行为。
+/// 转义控制字符（\x00-\x1f），替换换行符为空格，避免意外 prompt 行为。
 fn escape_for_prompt(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 64);
     for ch in text.chars() {
         match ch {
-            // 控制字符（除 \n \t 外）可能导致 prompt 注入或意外截断
-            '\x00'..='\x1f' if ch != '\n' && ch != '\t' => {
+            // 控制字符可能导致 prompt 注入或意外截断
+            '\x00'..='\x1f' => {
                 out.push_str(&format!("\\x{:02x}", ch as u8));
             }
+            // 换行符替换为空格，防止 prompt 注入
+            '\n' | '\r' => out.push(' '),
             _ => out.push(ch),
         }
     }
@@ -948,11 +950,12 @@ impl AiService {
                     let plain_chars = plain.chars().count();
                     let single_max = SINGLE_NOTE_HARD_CAP.min(remaining);
 
-                    let snippet = if plain_chars <= single_max {
-                        escape_for_prompt(&plain)
+                    let snippet_text = if plain_chars <= single_max {
+                        plain
                     } else {
-                        escape_for_prompt(&extract_window_for_rag(&plain, user_message, single_max))
+                        extract_window_for_rag(&plain, user_message, single_max)
                     };
+                    let snippet = escape_for_prompt(&snippet_text);
 
                     used += snippet.chars().count();
                     rag_context.push_str(&format!("---\n标题: {}\n内容: {}\n\n", title, snippet,));
