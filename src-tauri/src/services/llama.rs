@@ -1,11 +1,11 @@
 use std::env;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-use std::sync::Arc;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -27,7 +27,7 @@ pub enum LlamaError {
 
 pub type LlamaResult<T> = Result<T, LlamaError>;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,

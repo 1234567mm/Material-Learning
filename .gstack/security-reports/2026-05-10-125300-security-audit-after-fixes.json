@@ -1,0 +1,141 @@
+{
+  "version": "2.0.0",
+  "date": "2026-05-10T12:53:00+08:00",
+  "mode": "daily",
+  "scope": "full",
+  "diff_mode": false,
+  "phases_run": [0, 1, 2, 5, 7, 9, 12, 13, 14],
+  "attack_surface": {
+    "code": {
+      "public_endpoints": 0,
+      "authenticated": 85,
+      "admin": 0,
+      "api": 0,
+      "uploads": 3,
+      "integrations": 3,
+      "background_jobs": 3,
+      "websockets": 0
+    },
+    "infrastructure": {
+      "ci_workflows": 0,
+      "webhook_receivers": 0,
+      "container_configs": 0,
+      "iac_configs": 0,
+      "deploy_targets": 1,
+      "secret_management": "env_vars"
+    }
+  },
+  "findings": [
+    {
+      "id": 1,
+      "severity": "HIGH",
+      "confidence": 9,
+      "status": "VERIFIED",
+      "phase": 5,
+      "phase_name": "Infrastructure Shadow Surface",
+      "category": "Infrastructure",
+      "fingerprint": "sha256:spawn-no-verify-005",
+      "title": "Subprocess spawn without command whitelist for external binaries",
+      "file": "src-tauri/src/services/mcp_client.rs",
+      "line": 53,
+      "commit": null,
+      "description": "外部MCP server通过tokio::process::Command spawn时，server.command和server.args直接来自数据库，无白名单验证。这意味着如果攻击者修改数据库中的server配置，可让应用执行任意本地二进制文件。",
+      "exploit_scenario": "攻击者通过SQL注入或直接修改app.db，将server.command改为'/bin/bash'、args改为['-c', '恶意命令']，应用会执行任意系统命令（以当前用户权限运行）。",
+      "impact": "远程代码执行（RCE）；完全接管应用进程；可进一步利用应用权限访问系统资源。",
+      "recommendation": "已修复：新增command白名单ALLOWED_COMMANDS（包括npx/node/npm/yarn/pnpm/python3/deno/bun/sh）和DANGEROUS_ARGS危险字符检查（; | && || > >> < << ` $( ）。修复代码在mcp_client.rs。",
+      "playbook": null,
+      "verification": "independently verified"
+    },
+    {
+      "id": 2,
+      "severity": "MEDIUM",
+      "confidence": 8,
+      "status": "VERIFIED",
+      "phase": 5,
+      "phase_name": "Infrastructure Shadow Surface",
+      "category": "Infrastructure",
+      "fingerprint": "sha256:meilisearch-no-tls-006",
+      "title": "meilisearch HTTP server without TLS",
+      "file": "src-tauri/src/services/meilisearch.rs",
+      "line": 207,
+      "commit": null,
+      "description": "meilisearch以HTTP监听127.0.0.1:7700启动，无TLS加密。同一机器上的恶意进程可监听同一端口并代管/嗅探所有搜索请求和结果。",
+      "exploit_scenario": "同机器恶意软件监听127.0.0.1:7700，拦截知识库搜索请求和结果，获取用户查询内容和搜索结果数据。",
+      "impact": "本地网络嗅探；搜索内容泄露；搜索历史被本地窃取。",
+      "recommendation": "如威胁模型要求保护本地流量：(1) 使用HTTPS self-signed certificate + 证书校验；(2) 或使用Unix socket + 文件权限限制。Note: 如果127.0.0.1被严格视为可信网络，本finding可降为LOW。",
+      "playbook": null,
+      "verification": "independently verified"
+    },
+    {
+      "id": 3,
+      "severity": "MEDIUM",
+      "confidence": 8,
+      "status": "VERIFIED",
+      "phase": 5,
+      "phase_name": "Infrastructure Shadow Surface",
+      "category": "Infrastructure",
+      "fingerprint": "sha256:llama-server-no-tls-007",
+      "title": "llama-server HTTP server without TLS",
+      "file": "src-tauri/src/services/llama.rs",
+      "line": 240,
+      "commit": null,
+      "description": "llama-server以HTTP监听127.0.0.1:8080启动，无TLS加密。同一机器上的恶意进程可拦截所有AI推理请求和响应，包括prompt内容和模型回复。",
+      "exploit_scenario": "同机器恶意软件监听127.0.0.1:8080，拦截send_ai_message调用中的user_message和AI回复，获取用户对话内容和模型响应。",
+      "impact": "本地网络嗅探；对话内容泄露；用户行为数据被本地窃取。",
+      "recommendation": "如威胁模型要求保护本地流量，使用HTTPS + 证书校验，或使用Unix socket + 文件权限限制。",
+      "playbook": null,
+      "verification": "independently verified"
+    },
+    {
+      "id": 4,
+      "severity": "MEDIUM",
+      "confidence": 8,
+      "status": "VERIFIED",
+      "phase": 7,
+      "phase_name": "LLM & AI Security",
+      "category": "LLM Security",
+      "fingerprint": "sha256:tool-call-no-permission-check-008",
+      "title": "MCP tool calls lack permission/audit boundary",
+      "file": "src-tauri/src/services/mcp_client.rs",
+      "line": 39,
+      "commit": null,
+      "description": "MCP外部工具调用（dispatch_mcp）无权限校验：任意已配置的MCP server可执行任意系统操作，且调用结果直接返回给AI用于后续响应生成，无输入验证或输出过滤。",
+      "exploit_scenario": "恶意MCP server（在工具响应中注入有害内容）应用直接将该内容用于后续AI响应生成和系统决策，无任何校验。",
+      "impact": "恶意MCP工具响应注入AI对话；可能诱导应用执行危险操作；通过AI响应进行社交工程攻击。",
+      "recommendation": "对MCP工具响应：(1) 添加输出过滤和内容安全校验；(2) 关键操作前增加显式用户确认；(3) 工具调用结果记录审计日志。",
+      "playbook": null,
+      "verification": "independently verified"
+    }
+  ],
+  "supply_chain_summary": {
+    "direct_deps": 0,
+    "transitive_deps": 0,
+    "critical_cves": 0,
+    "high_cves": 0,
+    "install_scripts": 0,
+    "lockfile_present": true,
+    "lockfile_tracked": true,
+    "tools_skipped": ["cargo-audit (not installed)"]
+  },
+  "filter_stats": {
+    "candidates_scanned": 7,
+    "hard_exclusion_filtered": 0,
+    "confidence_gate_filtered": 3,
+    "verification_filtered": 0,
+    "reported": 4
+  },
+  "totals": {
+    "critical": 0,
+    "high": 1,
+    "medium": 3,
+    "tentative": 0,
+    "low": 0
+  },
+  "trend": {
+    "prior_report_date": "2026-05-10T00:00:00Z",
+    "resolved": 3,
+    "persistent": 1,
+    "new": 1,
+    "direction": "IMPROVING"
+  }
+}
