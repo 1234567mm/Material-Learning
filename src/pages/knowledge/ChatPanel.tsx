@@ -145,7 +145,7 @@ export function ChatPanel({ panel }: Props) {
             {ftsResults.map(([id, title, snippet]) => (
               <div key={id} style={{ marginBottom: 8, padding: 8, border: "1px solid #f0f0f0", borderRadius: 6 }}>
                 <div style={{ fontWeight: 600 }}>{title}</div>
-                <div dangerouslySetInnerHTML={{ __html: snippet }} />
+                <div>{snippet.replace(/<[^>]*>/g, '')}</div>
               </div>
             ))}
             {ftsResults.length === 0 && <span style={{ color: "#999" }}>无结果</span>}

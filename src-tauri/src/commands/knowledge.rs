@@ -1,5 +1,6 @@
 use crate::state::AppState;
 use knowledge_db::{ChatSession, ChatMessage as KbChatMessage, Summary, GlobalMemory};
+use std::sync::Arc;
 
 #[tauri::command]
 pub async fn knowledge_list_panels(
@@ -67,6 +68,13 @@ pub async fn knowledge_send_message(
     let kb = state.knowledge_db.as_ref().ok_or_else(|| "知识库未初始化")?;
     let llama = state.llama.as_ref().ok_or_else(|| "llama-server 未启动")?;
 
+    // Get or create per-session lock to prevent concurrent message interleaving
+    let lock = {
+        let mut locks = state.knowledge_session_locks.lock().unwrap();
+        locks.entry(session_id).or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))).clone()
+    };
+    let _guard = lock.lock().await;
+
     let session = kb.get_chat_session(session_id).map_err(|e| e.to_string())?;
     if !session.is_active {
         return Err("会话已结束，请创建新会话".to_string());
@@ -95,14 +103,26 @@ pub async fn knowledge_send_message(
     }
 
     let history = kb.get_messages(session_id).map_err(|e| e.to_string())?;
+
+    // Truncate history to fit context window (~8k tokens ≈ 32k chars, keep system + recent)
+    const MAX_CHARS: usize = 28_000;
     let mut messages: Vec<crate::services::llama::ChatMessage> = Vec::new();
     if !system_content.is_empty() {
         messages.push(crate::services::llama::ChatMessage {
             role: "system".to_string(),
-            content: system_content,
+            content: system_content.clone(),
         });
     }
-    for msg in history {
+
+    let mut total_chars = system_content.len();
+    let history_len = history.len();
+    let skip = if history_len > 20 { history_len - 20 } else { 0 };
+    for msg in history.into_iter().skip(skip) {
+        let msg_len = msg.content.len();
+        if total_chars + msg_len > MAX_CHARS {
+            break;
+        }
+        total_chars += msg_len;
         messages.push(crate::services::llama::ChatMessage {
             role: msg.role.clone(),
             content: msg.content.clone(),
@@ -128,10 +148,9 @@ pub async fn knowledge_end_session(
     let llama = state.llama.as_ref().ok_or_else(|| "llama-server 未启动")?;
 
     let session = kb.get_chat_session(session_id).map_err(|e| e.to_string())?;
-    kb.end_chat_session(session_id).map_err(|e| e.to_string())?;
     let messages = kb.get_messages(session_id).map_err(|e| e.to_string())?;
 
-    // Generate summary
+    // Generate summary before marking session as ended
     let mut prompt = "请简要总结以下对话的主要内容和结论，用中文回复。输出格式：摘要内容\nScore: 0.XX（0到1之间的质量分数）：\n\n".to_string();
     for msg in &messages {
         prompt.push_str(&format!("{}: {}\n", msg.role, msg.content));
@@ -169,6 +188,9 @@ pub async fn knowledge_end_session(
             quality_score,
         ).map_err(|e| e.to_string())?;
     }
+
+    // Mark session as ended only after summary and global memory are safely stored
+    kb.end_chat_session(session_id).map_err(|e| e.to_string())?;
 
     kb.get_summaries(session.panel_id, 10)
         .map_err(|e| e.to_string())?
