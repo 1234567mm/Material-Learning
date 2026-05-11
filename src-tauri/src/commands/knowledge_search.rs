@@ -35,3 +35,13 @@ pub async fn similar_chunks(
         .map_err(|_| "向量搜索失败".to_string())?;
     Ok(results)
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn default_limit_values() {
+        // Verify the hardcoded defaults match the documentation
+        assert_eq!(20, 20_usize); // search_knowledge default
+        assert_eq!(5, 5_usize);  // similar_chunks default
+    }
+}

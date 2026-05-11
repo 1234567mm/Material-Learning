@@ -309,3 +309,74 @@ fn is_executable(path: &PathBuf) -> bool {
         .map(|m| m.access_ok())
         .unwrap_or(false)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn llama_error_display() {
+        assert_eq!(LlamaError::NotAvailable.to_string(), "Server not available");
+        assert_eq!(LlamaError::Timeout.to_string(), "Timeout waiting for server");
+        assert!(LlamaError::Spawn("oops".into()).to_string().contains("oops"));
+        assert!(LlamaError::Api("bad".into()).to_string().contains("bad"));
+    }
+
+    #[test]
+    fn llama_client_new_sets_fields() {
+        let client = LlamaClient::new("http://127.0.0.1:8080".to_string(), "my-model".to_string(), None);
+        assert_eq!(client.base_url, "http://127.0.0.1:8080");
+        assert_eq!(client.model, "my-model");
+    }
+
+    #[test]
+    fn chat_message_serialization() {
+        let msg = ChatMessage {
+            role: "user".to_string(),
+            content: "hello".to_string(),
+        };
+        let j = serde_json::to_string(&msg).unwrap();
+        assert!(j.contains("hello"));
+        assert!(j.contains("user"));
+    }
+
+    #[test]
+    fn chat_request_serialization() {
+        let req = ChatRequest {
+            model: "test-model".to_string(),
+            messages: vec![
+                ChatMessage { role: "user".to_string(), content: "hi".to_string() },
+            ],
+            stream: false,
+        };
+        let j = serde_json::to_string(&req).unwrap();
+        assert!(j.contains("test-model"));
+        assert!(j.contains("hi"));
+        assert!(j.contains("\"stream\":false"));
+    }
+
+    #[test]
+    fn embed_request_serialization() {
+        let req = EmbedRequest {
+            model: "test-model".to_string(),
+            input: "hello world".to_string(),
+        };
+        let j = serde_json::to_string(&req).unwrap();
+        assert!(j.contains("test-model"));
+        assert!(j.contains("hello world"));
+    }
+
+    #[test]
+    fn llama_server_stop_is_idempotent() {
+        // LlamaServer::stop() can be called multiple times safely
+        let client = Arc::new(LlamaClient::new("http://127.0.0.1:8080".to_string(), "m".to_string(), None));
+        let server = Arc::new(LlamaServer {
+            child: Mutex::new(None),
+            client,
+        });
+        // Calling stop on a server with no child should not panic
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(server.stop());
+        rt.block_on(server.stop()); // second call should also be fine
+    }
+}
