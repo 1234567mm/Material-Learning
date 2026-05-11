@@ -44,6 +44,8 @@ pub struct AppState {
     pub llama: Option<Arc<LlamaClient>>,
     /// Per-session locks to serialize knowledge_send_message calls and prevent interleaving
     pub knowledge_session_locks: std::sync::Mutex<std::collections::HashMap<i64, Arc<tokio::sync::Mutex<()>>>>,
+    /// Per-session rate limiting: session_id -> last request timestamp (seconds since epoch)
+    pub knowledge_rate_limit: std::sync::Mutex<std::collections::HashMap<i64, u64>>,
     /// meilisearch HTTP client（可选，启动失败不阻断）
     pub meilisearch: Option<Arc<crate::services::meilisearch::MeilisearchServer>>,
     /// 外部 MCP server client 缓存（M5-2）。每个用户加的 server 对应一个子进程 + client。
@@ -79,6 +81,7 @@ impl AppState {
             knowledge_db,
             llama,
             knowledge_session_locks: std::sync::Mutex::new(std::collections::HashMap::new()),
+            knowledge_rate_limit: std::sync::Mutex::new(std::collections::HashMap::new()),
             meilisearch,
             #[cfg(desktop)]
             mcp_external: Arc::new(crate::services::mcp_client::McpClientManager::new()),

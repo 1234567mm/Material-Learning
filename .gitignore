@@ -36,3 +36,6 @@ src-tauri/keys/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local artifacts (security reports, learnings, queue)
+.gstack/

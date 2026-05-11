@@ -75,6 +75,22 @@ pub async fn knowledge_send_message(
     };
     let _guard = lock.lock().await;
 
+    // Rate limit: max 1 request per 3 seconds per session
+    const RATE_LIMIT_SECS: u64 = 3;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    {
+        let mut rate = state.knowledge_rate_limit.lock().unwrap();
+        if let Some(last) = rate.get(&session_id) {
+            if now.saturating_sub(*last) < RATE_LIMIT_SECS {
+                return Err(format!("请求过于频繁，请等待 {} 秒", RATE_LIMIT_SECS));
+            }
+        }
+        rate.insert(session_id, now);
+    }
+
     let session = kb.get_chat_session(session_id).map_err(|e| e.to_string())?;
     if !session.is_active {
         return Err("会话已结束，请创建新会话".to_string());
