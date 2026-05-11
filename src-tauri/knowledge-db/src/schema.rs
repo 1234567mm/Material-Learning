@@ -68,6 +68,17 @@ pub fn create_tables(conn: &Connection) -> Result<()> {
         CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
             title, content, content=files, content_rowid=id
         );
+
+        -- global_memories: 跨面板全局记忆（Learn）
+        CREATE TABLE IF NOT EXISTS global_memories (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            content            TEXT NOT NULL,
+            source_panel_id     INTEGER REFERENCES panels(id),
+            source_session_id   INTEGER REFERENCES chat_sessions(id),
+            quality_score       REAL DEFAULT 0.5,
+            used_count          INTEGER DEFAULT 0,
+            created_at          TEXT DEFAULT (datetime('now', 'localtime'))
+        );
     "#)?;
     Ok(())
 }

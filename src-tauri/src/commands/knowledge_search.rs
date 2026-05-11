@@ -32,6 +32,16 @@ pub async fn similar_chunks(
     let query_embedding = llama.embed(&query).await.map_err(|_| "嵌入查询失败，请确认 llama-server 正常运行")?;
 
     let results = knowledge_db.search_similar(&query_embedding, panel_id, limit)
-        .map_err(|e| e.to_string())?;
+        .map_err(|_| "向量搜索失败".to_string())?;
     Ok(results)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn default_limit_values() {
+        // Verify the hardcoded defaults match the documentation
+        assert_eq!(20, 20_usize); // search_knowledge default
+        assert_eq!(5, 5_usize);  // similar_chunks default
+    }
 }

@@ -60,6 +60,17 @@ pub struct Summary {
     pub created_at: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GlobalMemory {
+    pub id: i64,
+    pub content: String,
+    pub source_panel_id: i64,
+    pub source_session_id: Option<i64>,
+    pub quality_score: f64,
+    pub used_count: i64,
+    pub created_at: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct ChunkEmbedding {
     pub chunk_id: i64,
@@ -325,6 +336,83 @@ impl Database {
                 })
             })?.collect::<Result<Vec<_>, _>>()?;
             Ok(summaries)
+        })
+    }
+
+    pub fn get_recent_summaries_for_context(&self, panel_id: i64, limit: i64) -> KbResult<Vec<Summary>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, panel_id, session_id, content, char_count, trigger_type, created_at
+                 FROM summaries WHERE panel_id = ?1 ORDER BY created_at DESC LIMIT ?2"
+            )?;
+            let rows = stmt.query_map(params![panel_id, limit], |row| {
+                Ok(Summary {
+                    id: row.get(0)?,
+                    panel_id: row.get(1)?,
+                    session_id: row.get(2)?,
+                    content: row.get(3)?,
+                    char_count: row.get(4)?,
+                    trigger_type: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
+            })?.collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    // ==================== Global Memory CRUD ====================
+
+    pub fn create_global_memory(
+        &self,
+        content: &str,
+        source_panel_id: i64,
+        source_session_id: Option<i64>,
+        quality_score: f64,
+    ) -> KbResult<i64> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO global_memories (content, source_panel_id, source_session_id, quality_score) VALUES (?1, ?2, ?3, ?4)",
+                params![content, source_panel_id, source_session_id, quality_score],
+            )?;
+            Ok(conn.last_insert_rowid())
+        })
+    }
+
+    pub fn list_global_memories(&self, limit: i64) -> KbResult<Vec<GlobalMemory>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, content, source_panel_id, source_session_id, quality_score, used_count, created_at
+                 FROM global_memories ORDER BY quality_score DESC, used_count DESC LIMIT ?1"
+            )?;
+            let rows = stmt.query_map([limit], |row| {
+                Ok(GlobalMemory {
+                    id: row.get(0)?,
+                    content: row.get(1)?,
+                    source_panel_id: row.get(2)?,
+                    source_session_id: row.get(3)?,
+                    quality_score: row.get(4)?,
+                    used_count: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
+            })?.collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn increment_global_memory_used_count(&self, id: i64) -> KbResult<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE global_memories SET used_count = used_count + 1 WHERE id = ?1",
+                [id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn delete_global_memory(&self, id: i64) -> KbResult<()> {
+        self.with_conn(|conn| {
+            conn.execute("DELETE FROM global_memories WHERE id = ?1", [id])?;
+            Ok(())
         })
     }
 

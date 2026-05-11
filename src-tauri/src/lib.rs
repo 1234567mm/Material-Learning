@@ -695,8 +695,7 @@ pub fn run() {
             // 失败不阻断启动（Option 包装），用户可在设置页重新配置
             let llama = {
                 // 优先解密读取，失败则尝试明文（兼容旧版明文存储）
-                let model_path = ConfigService::get_decrypted_or_raw(&db, "llama_model_path")?
-                    .or_else(|| db.get_config("llama_model_path").ok().flatten().filter(|v| !v.is_empty()));
+                let model_path = ConfigService::get_decrypted_or_raw(&db, "llama_model_path")?;
                 let base_url = db.get_config("llama_base_url")
                     .ok().flatten().unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
                 let model = db.get_config("llama_model")
@@ -1114,6 +1113,20 @@ pub fn run() {
             commands::chat::send_message,
             commands::chat::end_chat_session,
             commands::chat::get_chat_messages,
+            // Phase 4 知识库 UI 模块
+            commands::knowledge::knowledge_list_panels,
+            commands::knowledge::knowledge_create_panel,
+            commands::knowledge::knowledge_update_panel,
+            commands::knowledge::knowledge_delete_panel,
+            commands::knowledge::knowledge_create_session,
+            commands::knowledge::knowledge_list_sessions,
+            commands::knowledge::knowledge_send_message,
+            commands::knowledge::knowledge_end_session,
+            commands::knowledge::knowledge_get_messages,
+            commands::knowledge::knowledge_search_files,
+            commands::knowledge::knowledge_similar_chunks,
+            commands::knowledge::knowledge_list_memories,
+            commands::knowledge::knowledge_forget_memory,
             // 知识库搜索模块
             commands::knowledge_search::search_knowledge,
             commands::knowledge_search::similar_chunks,

@@ -346,15 +346,17 @@ fn strip_html(html: &str) -> String {
 }
 
 /// 对 RAG 上下文内容做转义，防止通过笔记内容进行 prompt injection。
-/// 转义控制字符（\x00-\x1f，保留 \n \t），避免意外 prompt 行为。
+/// 转义控制字符（\x00-\x1f），替换换行符为空格，避免意外 prompt 行为。
 fn escape_for_prompt(text: &str) -> String {
     let mut out = String::with_capacity(text.len() + 64);
     for ch in text.chars() {
         match ch {
-            // 控制字符（除 \n \t 外）可能导致 prompt 注入或意外截断
-            '\x00'..='\x1f' if ch != '\n' && ch != '\t' => {
+            // 控制字符可能导致 prompt 注入或意外截断
+            '\x00'..='\x1f' => {
                 out.push_str(&format!("\\x{:02x}", ch as u8));
             }
+            // 换行符替换为空格，防止 prompt 注入
+            '\n' | '\r' => out.push(' '),
             _ => out.push(ch),
         }
     }
@@ -948,13 +950,12 @@ impl AiService {
                     let plain_chars = plain.chars().count();
                     let single_max = SINGLE_NOTE_HARD_CAP.min(remaining);
 
-                    let snippet = if plain_chars <= single_max {
-                        // 全文放得下：直接全文塞入（避免任何信息丢失）
-                        escape_for_prompt(&plain)
+                    let snippet_text = if plain_chars <= single_max {
+                        plain
                     } else {
-                        // 全文放不下：smart window 截窗（围绕命中关键词）
-                        escape_for_prompt(&extract_window_for_rag(&plain, user_message, single_max))
+                        extract_window_for_rag(&plain, user_message, single_max)
                     };
+                    let snippet = escape_for_prompt(&snippet_text);
 
                     used += snippet.chars().count();
                     rag_context.push_str(&format!("---\n标题: {}\n内容: {}\n\n", title, snippet,));
@@ -977,7 +978,7 @@ impl AiService {
         let refs_json = if ref_ids.is_empty() {
             None
         } else {
-            Some(serde_json::to_string(&ref_ids).unwrap_or_default())
+            Some(serde_json::to_string(&ref_ids).expect("ref_ids should always be serializable"))
         };
         let user_msg =
             db.add_ai_message(conversation_id, "user", user_message, refs_json.as_deref())?;
@@ -1105,6 +1106,15 @@ impl AiService {
             if history[i].role == "user" {
                 slice_start = i;
                 break;
+            }
+        }
+        // 如果窗口内全是 assistant，回退找 start 之前的最后一条 user 消息
+        if slice_start == start && start > 0 {
+            for i in (0..start).rev() {
+                if history[i].role == "user" {
+                    slice_start = i;
+                    break;
+                }
             }
         }
         // 过滤连续相同 role 的消息（保留最后一条），避免 API 报错

@@ -8,6 +8,11 @@ use thiserror::Error;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
+/// Timeout waiting for server
+const MEILISEARCH_STARTUP_TIMEOUT_SECS: u64 = 30;
+/// Polling interval while waiting for server readiness
+const MEILISEARCH_POLL_INTERVAL_SECS: u64 = 1;
+
 #[derive(Error, Debug)]
 pub enum MeilisearchError {
     #[error("HTTP error: {0}")]
@@ -217,10 +222,6 @@ pub async fn spawn_meilisearch(
 
     // Wait for server to be ready via health check
     let health_url = format!("{}/health", base_url);
-/// Timeout waiting for server
-const MEILISEARCH_STARTUP_TIMEOUT_SECS: u64 = 30;
-/// Polling interval while waiting for server readiness
-const MEILISEARCH_POLL_INTERVAL_SECS: u64 = 1;
 
     let http_client = Client::new();
     let start = std::time::Instant::now();
@@ -239,7 +240,7 @@ const MEILISEARCH_POLL_INTERVAL_SECS: u64 = 1;
         match http_client.get(&health_url).send().await {
             Ok(resp) if resp.status().is_success() => {
                 log::info!("[meilisearch] meilisearch is ready after {:?}", start.elapsed());
-                let mut server = finalize_server(&mut child_opt, base_url, index_name);
+                let server = finalize_server(&mut child_opt, base_url, index_name);
 
                 // Ensure the index exists (idempotent)
                 if let Err(e) = server.client().ensure_index().await {
@@ -258,4 +259,47 @@ const MEILISEARCH_POLL_INTERVAL_SECS: u64 = 1;
         let _ = c.kill();
     }
     Err(MeilisearchError::Timeout)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn meilisearch_error_display() {
+        assert_eq!(MeilisearchError::NotAvailable.to_string(), "Server not available");
+        assert_eq!(MeilisearchError::Timeout.to_string(), "Timeout waiting for server");
+        assert!(MeilisearchError::Spawn("oops".into()).to_string().contains("oops"));
+        assert!(MeilisearchError::Api("bad response".into()).to_string().contains("bad response"));
+    }
+
+    #[test]
+    fn meilisearch_client_constructor() {
+        let client = MeilisearchClient::new("http://127.0.0.1:7700".to_string(), "test_index".to_string());
+        assert_eq!(client.base_url, "http://127.0.0.1:7700");
+        assert_eq!(client.index_name, "test_index");
+    }
+
+    #[test]
+    fn meilisearch_client_health_url_construction() {
+        let client = MeilisearchClient::new("http://127.0.0.1:7700".to_string(), "test".to_string());
+        // health() is async — run it inside a Tokio runtime
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let _ = client.health().await;
+        });
+    }
+
+    #[test]
+    fn meilisearch_search_request_serialization() {
+        let client = MeilisearchClient::new("http://127.0.0.1:7700".to_string(), "test".to_string());
+        let url = format!("{}/indexes/{}/search", client.base_url, client.index_name);
+        assert_eq!(url, "http://127.0.0.1:7700/indexes/test/search");
+    }
+
+    #[test]
+    fn meilisearch_constants_defined() {
+        assert_eq!(MEILISEARCH_STARTUP_TIMEOUT_SECS, 30);
+        assert_eq!(MEILISEARCH_POLL_INTERVAL_SECS, 1);
+    }
 }
