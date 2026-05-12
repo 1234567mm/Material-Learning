@@ -12,6 +12,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'linting...'",
     "build:mcp": "node scripts/build-mcp.mjs",
     "build:mcp:debug": "node scripts/build-mcp.mjs --debug"
   },
