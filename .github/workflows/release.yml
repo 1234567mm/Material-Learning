@@ -106,18 +106,96 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      # === NEW: 同步版本号 ===
+      - name: Sync version to tauri.conf.json
+        run: pnpm run bump-tauri-version
+
       - name: Build Tauri app
         run: pnpm tauri build
         timeout-minutes: 60
+
+      # === NEW: rename 产物加架构后缀 ===
+      - name: Rename artifacts with architecture suffix
+        shell: bash
+        run: |
+          cd src-tauri/target/release/bundle
+          ver=$(node -e "console.log(require('./src-tauri/tauri.conf.json').version)")
+          echo "Version: $ver"
+
+          # Windows NSIS: 去掉空格，统一前缀为 KnowledgeBase
+          if [ "${{ matrix.platform }}" == "windows-latest" ]; then
+            for f in $(find . -name "*setup*.exe" -type f 2>/dev/null | grep -i nsis); do
+              name=$(basename "$f")
+              new_name="KnowledgeBase_${ver}_x64-setup.exe"
+              echo "Renaming: $name -> $new_name"
+              mv "$f" "$(dirname "$f")/$new_name"
+            done
+            # Windows MSI
+            for f in $(find . -name "*.msi" -type f 2>/dev/null); do
+              name=$(basename "$f")
+              new_name="KnowledgeBase_${ver}_x64.msi"
+              echo "Renaming: $name -> $new_name"
+              mv "$f" "$(dirname "$f")/$new_name"
+            done
+          fi
+
+          # Ubuntu
+          if [ "${{ matrix.platform }}" == "ubuntu-latest" ]; then
+            for f in $(find . -name "*amd64.deb" -type f 2>/dev/null); do
+              name=$(basename "$f")
+              new_name="KnowledgeBase_${ver}_amd64.deb"
+              echo "Renaming: $name -> $new_name"
+              mv "$f" "$(dirname "$f")/$new_name"
+            done
+            for f in $(find . -name "*.AppImage" -type f 2>/dev/null); do
+              name=$(basename "$f")
+              new_name="KnowledgeBase_${ver}_amd64.AppImage"
+              echo "Renaming: $name -> $new_name"
+              mv "$f" "$(dirname "$f")/$new_name"
+            done
+          fi
+
+          # macOS
+          if [ "${{ matrix.platform }}" == "macos-latest" ]; then
+            for f in $(find . -name "*.dmg" -type f 2>/dev/null); do
+              name=$(basename "$f")
+              new_name="KnowledgeBase_${ver}_aarch64.dmg"
+              echo "Renaming: $name -> $new_name"
+              mv "$f" "$(dirname "$f")/$new_name"
+            done
+          fi
+
+          echo "=== Artifact listing ==="
+          find . -type f \( -name "*.exe" -o -name "*.msi" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" \) | while read f; do echo "$f"; done
+
+      # === NEW: 生成 release 文档 ===
+      - name: Generate release documentation
+        run: |
+          VERSION=$(node -e "console.log(require('./package.json').version)")
+          pnpm run generate-release-doc $VERSION
+
+      # === NEW: commit release 文档 ===
+      - name: Commit release documentation
+        run: |
+          VERSION=$(node -e "console.log(require('./package.json').version)")
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add releases/v${VERSION}.md
+          git diff --cached --quiet && echo "No release doc changes" || \
+            git commit -m "docs: add release notes for v${VERSION}
+
+Co-Authored-By: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
 
       - name: Upload Release Asset
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            src-tauri/target/release/bundle/**/*.exe
             src-tauri/target/release/bundle/**/*.msi
             src-tauri/target/release/bundle/**/*.deb
-            src-tauri/target/release/bundle/**/*.app.tar.gz
+            src-tauri/target/release/bundle/**/*.AppImage
             src-tauri/target/release/bundle/**/*.dmg
+            releases/v*.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
