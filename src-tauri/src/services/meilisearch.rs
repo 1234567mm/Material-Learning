@@ -189,7 +189,15 @@ fn is_executable(path: &PathBuf) -> bool {
 #[cfg(not(unix))]
 fn is_executable(path: &PathBuf) -> bool {
     std::fs::metadata(path)
-        .map(|m| m.access_ok())
+        .map(|m| {
+            let valid = m.is_file();
+            #[cfg(windows)]
+            let valid = valid && path
+                .extension()
+                .map(|e| e == "exe" || e == "cmd" || e == "bat" || e == "ps1")
+                .unwrap_or(false);
+            valid
+        })
         .unwrap_or(false)
 }
 
