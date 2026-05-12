@@ -45,8 +45,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "deb", "app"],
-    "createUpdaterArtifacts": "v1Compatible",
+    "targets": ["nsis", "msi", "deb", "appimage", "app", "dmg"],
+    "createUpdaterArtifacts": false,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
