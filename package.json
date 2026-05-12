@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "echo 'linting...'",
     "build:mcp": "node scripts/build-mcp.mjs",
-    "build:mcp:debug": "node scripts/build-mcp.mjs --debug"
+    "build:mcp:debug": "node scripts/build-mcp.mjs --debug",
+    "bump-tauri-version": "node scripts/bump-tauri-version.js"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
