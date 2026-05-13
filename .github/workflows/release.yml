@@ -185,9 +185,7 @@ jobs:
           git config --local user.name "github-actions[bot]"
           git add releases/v${VERSION}.md
           git diff --cached --quiet && echo "No release doc changes" || \
-            git commit -m "docs: add release notes for v${VERSION}
-
-Co-Authored-By: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+            git commit -m "docs: add release notes for v${VERSION}" --trailer "Co-Authored-By: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
 
       - name: Upload Release Asset
         if: startsWith(github.ref, 'refs/tags/v')
