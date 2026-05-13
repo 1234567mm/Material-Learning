@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Knowledge Base",
+  "productName": "KnowledgeBase",
   "mainBinaryName": "KnowledgeBase",
   "version": "1.8.1",
   "identifier": "com.agilefr.kb",
