@@ -165,6 +165,11 @@ jobs:
           echo "=== Artifact listing ==="
           find . -type f \( -name "*.exe" -o -name "*.msi" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" \) | while read f; do echo "$f"; done
 
+      - name: Validate artifacts
+        run: |
+          VERSION=$(node -e "console.log(require('./package.json').version)")
+          pnpm run verify-artifacts $VERSION
+
       # === NEW: 生成 release 文档 ===
       - name: Generate release documentation
         run: |
