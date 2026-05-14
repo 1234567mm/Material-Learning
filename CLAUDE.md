@@ -5,8 +5,8 @@
 | 项目 | 值 |
 |------|-----|
 | 项目名 | knowledge_base |
-| 当前版本 | 1.8.1 (package.json) |
-| 最新 tag | v1.8.4 (已推送，CI 运行中) |
+| 当前版本 | 1.8.5 (package.json) |
+| 最新 tag | v1.8.5 (已推送，CI 运行中) |
 | 主分支 | main |
 | 技术栈 | Tauri 2.x + React + TypeScript + SQLite |
 | 包管理器 | pnpm v9 |
@@ -23,8 +23,9 @@
 
 | Tag/Branch | 状态 | 时长 | 问题 |
 |------------|------|------|------|
-| v1.8.4 | 运行中 | - | lint + build |
-| main (b44780c) | 运行中 | - | docs CLAUDE.md |
+| v1.8.5 | 运行中 | - | lint + build |
+| main (076b3da) | 运行中 | - | bump version + fix CI path |
+| v1.8.4 | 失败 | - | MODULE_NOT_FOUND (CI 路径错误) |
 | v1.8.3 | 失败 | 18m55s | MODULE_NOT_FOUND + MSI WiX |
 | v1.8.2 | 失败 | 19m1s | YAML multi-line string |
 
@@ -43,14 +44,14 @@ Material-Learning/
 ├── src/                    # React 前端
 ├── src-tauri/              # Rust 后端 (Tauri 2.x)
 │   ├── src/               # Rust 源码
-│   ├── tauri.conf.json    # Tauri 配置 (version: 1.8.1)
+│   ├── tauri.conf.json    # Tauri 配置 (version: 1.8.5)
 │   └── target/release/    # 构建产物
 ├── dist/                   # 前端构建产物
 ├── releases/              # release notes (自动生成)
 ├── .github/workflows/     # CI/CD 配置
 │   └── release.yml       # Release pipeline
 ├── docs/superpowers/      # 计划文档
-├── package.json           # version: 1.8.1
+├── package.json           # version: 1.8.5
 ├── pnpm-lock.yaml
 └── CLAUDE.md              # 本文件
 ```
@@ -59,7 +60,7 @@ Material-Learning/
 
 - **版本 bump**: `pnpm run bump-tauri-version` (同步 package.json → tauri.conf.json)
 - **发布流程**: bump 版本 → commit → tag → push --tags
-- **当前问题**: tag v1.8.3 时代码版本停在 1.8.1，需确保 tag 前版本已 bump
+- **CI 路径修复**: release.yml 中 tauri.conf.json 路径已从 `../../../src-tauri/tauri.conf.json` 修正为 `../../src-tauri/tauri.conf.json`
 
 ## 构建命令
 
@@ -81,7 +82,6 @@ git tag v1.8.5 && git push --tags
 ## 已知问题
 
 1. **MSI 签名缺失**: `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 为空，Windows MSI 跳过
-2. **版本/tag 同步**: tag 推送前需确认代码版本已更新
 
 ## 开发环境
 
@@ -89,4 +89,3 @@ git tag v1.8.5 && git push --tags
 - **Node**: 24.x (via FORCE_JAVASCRIPT_ACTIONS_TO_NODE24)
 - **Rust**: stable toolchain
 - **pnpm**: v9
-- **本地构建**: 有旧构建产物 (May 13)，无最新代码构建
