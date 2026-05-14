@@ -114,6 +114,7 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_BUNDLE_TARGETS: ${{ matrix.platform == 'ubuntu-latest' && 'deb,appimage' || matrix.platform == 'windows-latest' && 'nsis' || 'app,dmg' }}
         run: pnpm tauri build
         timeout-minutes: 60
 
@@ -130,13 +131,6 @@ jobs:
             for f in $(find . -name "*setup*.exe" -type f 2>/dev/null | grep -i nsis); do
               name=$(basename "$f")
               new_name="KnowledgeBase_${ver}_x64-setup.exe"
-              echo "Renaming: $name -> $new_name"
-              mv "$f" "$(dirname "$f")/$new_name"
-            done
-            # Windows MSI
-            for f in $(find . -name "*.msi" -type f 2>/dev/null); do
-              name=$(basename "$f")
-              new_name="KnowledgeBase_${ver}_x64.msi"
               echo "Renaming: $name -> $new_name"
               mv "$f" "$(dirname "$f")/$new_name"
             done
