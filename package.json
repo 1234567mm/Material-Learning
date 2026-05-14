@@ -1,7 +1,7 @@
 {
   "name": "knowledge_base",
   "private": true,
-  "version": "1.8.1",
+  "version": "1.8.5",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {

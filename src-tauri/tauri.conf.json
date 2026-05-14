@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "KnowledgeBase",
   "mainBinaryName": "KnowledgeBase",
-  "version": "1.8.1",
+  "version": "1.8.5",
   "identifier": "com.agilefr.kb",
   "build": {
     "beforeDevCommand": "pnpm dev:clean",
@@ -29,7 +29,9 @@
       "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost https://fonts.gstatic.com data: blob:; media-src 'self' asset: http://asset.localhost blob:; connect-src 'self' http://localhost:* https://*; font-src 'self' data:; frame-src https://player.bilibili.com https://*.bilibili.com https://www.youtube.com https://www.youtube-nocookie.com https://v.qq.com https://*.qq.com https://player.youku.com https://*.youku.com https://player.vimeo.com https://*.vimeo.com https://player.twitch.tv https://*.twitch.tv https://www.dailymotion.com https://*.dailymotion.com",
       "assetProtocol": {
         "enable": true,
-        "scope": ["$APPDATA/**"]
+        "scope": [
+          "$APPDATA/**"
+        ]
       }
     }
   },
@@ -45,7 +47,14 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi", "deb", "appimage", "app", "dmg"],
+    "targets": [
+      "nsis",
+      "msi",
+      "deb",
+      "appimage",
+      "app",
+      "dmg"
+    ],
     "createUpdaterArtifacts": false,
     "icon": [
       "icons/32x32.png",
@@ -56,7 +65,10 @@
     ],
     "fileAssociations": [
       {
-        "ext": ["md", "markdown"],
+        "ext": [
+          "md",
+          "markdown"
+        ],
         "name": "Markdown 文件",
         "description": "由知识库打开",
         "role": "Editor"
@@ -69,7 +81,10 @@
     "windows": {
       "nsis": {
         "displayLanguageSelector": true,
-        "languages": ["SimpChinese", "English"],
+        "languages": [
+          "SimpChinese",
+          "English"
+        ],
         "installerIcon": "icons/icon.ico"
       }
     },
@@ -78,7 +93,9 @@
     },
     "linux": {
       "deb": {
-        "depends": ["libwebkit2gtk-4.1-0"],
+        "depends": [
+          "libwebkit2gtk-4.1-0"
+        ],
         "section": "utility"
       },
       "appimage": {
