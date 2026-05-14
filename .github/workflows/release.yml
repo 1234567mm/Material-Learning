@@ -123,7 +123,7 @@ jobs:
         shell: bash
         run: |
           cd src-tauri/target/release/bundle
-          ver=$(node -e "console.log(require('../../../src-tauri/tauri.conf.json').version)")
+          ver=$(node -e "console.log(require('../../src-tauri/tauri.conf.json').version)")
           echo "Version: $ver"
 
           # Windows NSIS: 去掉空格，统一前缀为 KnowledgeBase
