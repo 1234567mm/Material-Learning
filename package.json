@@ -1,7 +1,7 @@
 {
   "name": "knowledge_base",
   "private": true,
-  "version": "1.8.5",
+  "version": "1.8.6",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
@@ -17,9 +17,7 @@
     "build:mcp": "node scripts/build-mcp.mjs",
     "build:mcp:debug": "node scripts/build-mcp.mjs --debug",
     "bump-tauri-version": "node scripts/bump-tauri-version.js",
-    "generate-release-doc": "node scripts/generate-release-doc.js",
-    "verify-artifacts": "node scripts/verify-artifacts.js",
-    "pre-ship-check": "node scripts/pre-ship-check.js"
+    "generate-release-doc": "node scripts/generate-release-doc.js"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
