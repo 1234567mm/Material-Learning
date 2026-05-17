@@ -5,8 +5,8 @@
 | 项目 | 值 |
 |------|-----|
 | 项目名 | knowledge_base |
-| 当前版本 | 1.8.6 (package.json) |
-| 最新 tag | v1.8.6 |
+| 当前版本 | 1.8.7 (package.json) |
+| 最新 tag | v1.8.7 |
 | 主分支 | main |
 | 技术栈 | Tauri 2.x + React + TypeScript + SQLite |
 | 包管理器 | pnpm v9 |

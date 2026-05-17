@@ -131,9 +131,12 @@ jobs:
       - name: Rename artifacts with architecture suffix
         shell: bash
         run: |
-          cd src-tauri/target/release/bundle
-          ver=$(node -e "console.log(require('${{ github.workspace }}/src-tauri/tauri.conf.json').version)")
+          # 先 cd 回 repo 根目录，避免 Windows 路径问题
+          cd "${{ github.workspace }}"
+          ver=$(node -e "console.log(require('./src-tauri/tauri.conf.json').version)")
           echo "Version: $ver"
+
+          cd src-tauri/target/release/bundle
 
           # FIX: 封装 safe_rename，文件名已经正确时跳过 mv。
           # 原来 mv src src 在 bash -e 下返回 exit 1 直接导致整个 job 失败。
