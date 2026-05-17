@@ -114,8 +114,17 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          TAURI_BUNDLE_TARGETS: ${{ matrix.platform == 'ubuntu-latest' && 'deb,appimage' || matrix.platform == 'windows-latest' && 'nsis' || 'app,dmg' }}
-        run: pnpm tauri build
+        shell: bash
+        run: |
+          # Tauri v2 不识别 TAURI_BUNDLE_TARGETS 环境变量（v1 遗留），
+          # 必须通过 --bundles CLI 参数控制，否则会读 tauri.conf.json 的全量 targets。
+          if [ "${{ matrix.platform }}" == "ubuntu-latest" ]; then
+            pnpm tauri build --bundles deb,appimage
+          elif [ "${{ matrix.platform }}" == "windows-latest" ]; then
+            pnpm tauri build --bundles nsis
+          else
+            pnpm tauri build --bundles app,dmg
+          fi
         timeout-minutes: 60
 
       # === NEW: rename 产物加架构后缀 ===
@@ -126,39 +135,39 @@ jobs:
           ver=$(node -e "console.log(require('${{ github.workspace }}/src-tauri/tauri.conf.json').version)")
           echo "Version: $ver"
 
+          # FIX: 封装 safe_rename，文件名已经正确时跳过 mv。
+          # 原来 mv src src 在 bash -e 下返回 exit 1 直接导致整个 job 失败。
+          safe_rename() {
+            local src="$1" new_name="$2"
+            if [ "$(basename "$src")" = "$new_name" ]; then
+              echo "Already named correctly: $new_name (skipping)"
+            else
+              echo "Renaming: $(basename "$src") -> $new_name"
+              mv "$src" "$(dirname "$src")/$new_name"
+            fi
+          }
+
           # Windows NSIS: 去掉空格，统一前缀为 KnowledgeBase
           if [ "${{ matrix.platform }}" == "windows-latest" ]; then
             for f in $(find . -name "*setup*.exe" -type f 2>/dev/null | grep -i nsis); do
-              name=$(basename "$f")
-              new_name="KnowledgeBase_${ver}_x64-setup.exe"
-              echo "Renaming: $name -> $new_name"
-              mv "$f" "$(dirname "$f")/$new_name"
+              safe_rename "$f" "KnowledgeBase_${ver}_x64-setup.exe"
             done
           fi
 
           # Ubuntu
           if [ "${{ matrix.platform }}" == "ubuntu-latest" ]; then
             for f in $(find . -name "*amd64.deb" -type f 2>/dev/null); do
-              name=$(basename "$f")
-              new_name="KnowledgeBase_${ver}_amd64.deb"
-              echo "Renaming: $name -> $new_name"
-              mv "$f" "$(dirname "$f")/$new_name"
+              safe_rename "$f" "KnowledgeBase_${ver}_amd64.deb"
             done
             for f in $(find . -name "*.AppImage" -type f 2>/dev/null); do
-              name=$(basename "$f")
-              new_name="KnowledgeBase_${ver}_amd64.AppImage"
-              echo "Renaming: $name -> $new_name"
-              mv "$f" "$(dirname "$f")/$new_name"
+              safe_rename "$f" "KnowledgeBase_${ver}_amd64.AppImage"
             done
           fi
 
           # macOS
           if [ "${{ matrix.platform }}" == "macos-latest" ]; then
             for f in $(find . -name "*.dmg" -type f 2>/dev/null); do
-              name=$(basename "$f")
-              new_name="KnowledgeBase_${ver}_aarch64.dmg"
-              echo "Renaming: $name -> $new_name"
-              mv "$f" "$(dirname "$f")/$new_name"
+              safe_rename "$f" "KnowledgeBase_${ver}_aarch64.dmg"
             done
           fi
 
@@ -166,6 +175,8 @@ jobs:
           find . -type f \( -name "*.exe" -o -name "*.msi" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" \) | while read f; do echo "$f"; done
 
       - name: Validate artifacts
+        env:
+          PLATFORM: ${{ matrix.platform }}
         run: |
           VERSION=$(node -e "console.log(require('./package.json').version)")
           pnpm run verify-artifacts $VERSION
