@@ -178,6 +178,7 @@ jobs:
           find . -type f \( -name "*.exe" -o -name "*.msi" -o -name "*.deb" -o -name "*.AppImage" -o -name "*.dmg" \) | while read f; do echo "$f"; done
 
       - name: Validate artifacts
+        shell: bash
         env:
           PLATFORM: ${{ matrix.platform }}
         run: |
@@ -186,12 +187,14 @@ jobs:
 
       # === NEW: 生成 release 文档 ===
       - name: Generate release documentation
+        shell: bash
         run: |
           VERSION=$(node -e "console.log(require('./package.json').version)")
           pnpm run generate-release-doc $VERSION
 
       # === NEW: commit release 文档 ===
       - name: Commit release documentation
+        shell: bash
         run: |
           VERSION=$(node -e "console.log(require('./package.json').version)")
           git config --local user.email "github-actions[bot]@users.noreply.github.com"

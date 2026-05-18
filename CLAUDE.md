@@ -133,6 +133,7 @@ docker run --rm -v "$(pwd):/app" -w /app \
 | Windows: `light.exe failed` (MSI) | `TAURI_BUNDLE_TARGETS` 是 Tauri v1 遗留环境变量，v2 不识别；`tauri.conf.json` 里所有 targets 都会被构建，MSI 因缺少签名工具失败 | 改用 `pnpm tauri build --bundles nsis`（CLI 参数在 v2 有效） |
 | macOS: `Missing script: verify-artifacts` | `scripts/verify-artifacts.js` 存在但未在 `package.json` 的 `scripts` 里注册 | 在 package.json 补 `"verify-artifacts": "node scripts/verify-artifacts.js"` |
 | macOS verify-artifacts: `Unknown platform` | workflow 调用时漏传 `PLATFORM` 环境变量 | step 里加 `env: PLATFORM: ${{ matrix.platform }}` |
+| Windows: `VERSION=...` 不是内部或外部命令 | PowerShell 将 `VERSION=$(node ...)` 视为整行命令而非变量赋值 | step 声明 `shell: bash` 使其走 bash 而非 pwsh |
 
 ### 版本发布 Checklist
 
